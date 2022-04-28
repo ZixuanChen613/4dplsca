@@ -1,0 +1,11 @@
+{
+  "name": "4dpls-ca",
+  "version": "1.0.0",
+  "description": "<img width=\"720\" alt=\"4dmain\" src=\"https://user-images.githubusercontent.com/5329637/124156220-077a2500-daa0-11eb-8d59-6dd5c1455500.png\">",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "zixuan.chen",
+  "license": "ISC"
+}
