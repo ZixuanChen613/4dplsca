@@ -14,6 +14,10 @@
 #      Hugues THOMAS - 06/03/2020
 #
 
+import pdb
+pdb.set_trace()
+
+
 from models.blocks import *
 from models.losses import *
 import numpy as np
@@ -306,11 +310,11 @@ class KPFCNN(nn.Module):
 
         # Current radius of convolution and feature dimension
         layer = 0
-        r = config.first_subsampling_dl * config.conv_radius
-        in_dim = config.in_features_dim
-        out_dim = config.first_features_dim
-        self.K = config.num_kernel_points
-        self.C = len(lbl_values) - len(ign_lbls)
+        r = config.first_subsampling_dl * config.conv_radius  # 0.3 = 0.12 * 2.5
+        in_dim = config.in_features_dim                       # 3
+        out_dim = config.first_features_dim                   # 256
+        self.K = config.num_kernel_points                     # 15
+        self.C = len(lbl_values) - len(ign_lbls)              # 19
 
         #####################
         # List Encoder blocks
@@ -318,11 +322,11 @@ class KPFCNN(nn.Module):
 
         # Save all block operations in a list of modules
         self.encoder_blocks = nn.ModuleList()
-        self.encoder_skip_dims = []
-        self.encoder_skips = []
+        self.encoder_skip_dims = []             # [256, 512, 1024, 2048, 4096, 8192]
+        self.encoder_skips = []                 # [2, 5, 8, 11, 16, 19] strided
 
         # Loop over consecutive blocks
-        for block_i, block in enumerate(config.architecture):
+        for block_i, block in enumerate(config.architecture): 
 
             # Check equivariance
             if ('equivariant' in block) and (not out_dim % 3 == 0):
@@ -347,7 +351,7 @@ class KPFCNN(nn.Module):
 
             # Update dimension of input from output
             if 'simple' in block:
-                in_dim = out_dim // 2
+                in_dim = out_dim // 2                      # 128 = 256 // 2
             else:
                 in_dim = out_dim
 
@@ -399,10 +403,10 @@ class KPFCNN(nn.Module):
                 r *= 0.5
                 out_dim = out_dim // 2
 
-        self.head_mlp = UnaryBlock(out_dim, config.first_features_dim, False, 0)
-        self.head_var = UnaryBlock(config.first_features_dim, out_dim + config.free_dim, False, 0)
-        self.head_softmax = UnaryBlock(config.first_features_dim, self.C, False, 0)
-        self.head_center = UnaryBlock(config.first_features_dim, 1, False, 0, False)
+        self.head_mlp = UnaryBlock(out_dim, config.first_features_dim, False, 0)             # 256, 256
+        self.head_var = UnaryBlock(config.first_features_dim, out_dim + config.free_dim, False, 0)     # 256, 256+4
+        self.head_softmax = UnaryBlock(config.first_features_dim, self.C, False, 0)          # 256, 19
+        self.head_center = UnaryBlock(config.first_features_dim, 1, False, 0, False)         # 256, 1
 
 
         self.pre_train = config.pre_train
@@ -454,13 +458,13 @@ class KPFCNN(nn.Module):
             x = block_op(x, batch)
 
 
-        # Head of network
-        f = self.head_mlp(x, batch)
-        c = self.head_center(f, batch)
-        c = self.sigmoid(c)
-        v = self.head_var(f, batch)
-        v = F.relu(v)
-        x = self.head_softmax(f, batch)
+        # 4 Heads of network
+        f = self.head_mlp(x, batch)     # point embeding (N, 256)
+        c = self.head_center(f, batch)  # object center (N, 1)
+        c = self.sigmoid(c)             # object center -> (0,1)
+        v = self.head_var(f, batch)     # point variance (N, 260)
+        v = F.relu(v)                   # point variance (N, 260)
+        x = self.head_softmax(f, batch) # semantic map (N, 19)
 
         return x, c, v, f
 
@@ -473,21 +477,21 @@ class KPFCNN(nn.Module):
         """
 
         # Set all ignored labels to -1 and correct the other label to be in [0, C-1] range
-        target = - torch.ones_like(labels)
+        target = - torch.ones_like(labels)       # torch.Size(N) 
         for i, c in enumerate(self.valid_labels):
             target[labels == c] = i
 
         # Reshape to have a minibatch size of 1
-        outputs = torch.transpose(outputs, 0, 1)
-        outputs = outputs.unsqueeze(0)
-        target = target.unsqueeze(0)
-        centers_p = centers_p.squeeze()
+        outputs = torch.transpose(outputs, 0, 1)   # (19, N)
+        outputs = outputs.unsqueeze(0)              # (1, 19, N)
+        target = target.unsqueeze(0)                # (1, N)
+        centers_p = centers_p.squeeze()             # (N, 1)
         # Cross entropy loss
-        self.output_loss = self.criterion(outputs, target)
-        weights = (centers_gt[:, 0] > 0) * 99 + (centers_gt[:, 0] >= 0) * 1
+        self.output_loss = self.criterion(outputs, target)                         # semantic label loss
+        weights = (centers_gt[:, 0] > 0) * 99 + (centers_gt[:, 0] >= 0) * 1        # if >= 0 then 100; otherwise 1
         self.center_loss = weighted_mse_loss(centers_p, centers_gt[:, 0], weights)
 
-        if not self.pre_train:
+        if not self.pre_train:  # embeddings (N, 256) ; variances (N, 260)
             self.instance_half_loss = instance_half_loss(embeddings, ins_labels)
             self.instance_loss = iou_instance_loss(centers_p, embeddings, variances, ins_labels, points, times)
             self.variance_loss = variance_smoothness_loss(variances, ins_labels)

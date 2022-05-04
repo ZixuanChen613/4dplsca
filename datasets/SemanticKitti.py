@@ -63,7 +63,7 @@ class SemanticKittiDataset(PointCloudDataset):
         ##########################
 
         # Dataset folder
-        self.path = 'data/SemanticKitti'
+        self.path = '/data1/zixuan.chen/code/contrastive_association/cont_assoc/data/kitti'    #'data/SemanticKitti'
 
         # Type of task conducted on this dataset
         self.dataset_task = 'slam_segmentation'
