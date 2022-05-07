@@ -103,7 +103,7 @@ if __name__ == '__main__':
     chkp_idx = None
 
     # Choose to test on validation or test split
-    on_val = True
+    on_val = False     # True
 
     # Deal with 'last_XXXXXX' choices
     chosen_log = model_choice(chosen_log)
@@ -144,7 +144,7 @@ if __name__ == '__main__':
     # Change parameters for the test here. For example, you can stop augmenting the input data.
 
     config.global_fet = False
-    config.validation_size = 200
+    config.validation_size = 200    ## 200
     config.input_threads = 16
     config.n_frames = 4
     config.n_test_frames = 4 #it should be smaller than config.n_frames
@@ -190,10 +190,10 @@ if __name__ == '__main__':
 
     # Data loader
     test_loader = DataLoader(test_dataset,
-                             batch_size=1,
+                             batch_size=1,        
                              sampler=test_sampler,
                              collate_fn=collate_fn,
-                             num_workers=0,#config.input_threads,
+                             num_workers=5,  #config.input_threads, 0
                              pin_memory=True)
 
     # Calibrate samplers

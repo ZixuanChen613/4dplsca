@@ -7,7 +7,7 @@ from os.path import exists, join, isdir
 import sys
 
 sequences = ['{:02d}'.format(i) for i in range(11)]
-path = '../data/SemanticKitti/'
+path = '/data1/zixuan.chen/code/contrastive_association/cont_assoc/data/kitti/'
 covariance = np.diag(np.array([1, 1, 1]))
 center_point = np.zeros((1, 3))
 

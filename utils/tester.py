@@ -21,6 +21,8 @@
 #       \**********************************/
 #
 
+import pdb
+pdb.set_trace()
 
 # Basic libs
 import torch
@@ -820,28 +822,28 @@ class ModelTester:
 
                 with torch.no_grad():
 
-                    outputs, centers_output, var_output, embedding = net(batch, config)
+                    outputs, centers_output, var_output, embedding = net(batch, config)    # (166205, 19); (N, 1); (N, 260); (N, 256)
                     #ins_preds = torch.zeros(outputs.shape[0])
 
-                    probs = softmax(outputs).cpu().detach().numpy()
+                    probs = softmax(outputs).cpu().detach().numpy()                        # (166205, 19)
 
                     for l_ind, label_value in enumerate(test_loader.dataset.label_values):
                         if label_value in test_loader.dataset.ignored_labels:
                             probs = np.insert(probs, l_ind, 0, axis=1)
-                    preds = test_loader.dataset.label_values[np.argmax(probs, axis=1)]
+                    preds = test_loader.dataset.label_values[np.argmax(probs, axis=1)]     # (166205, )   value between [1, 19]
                     preds = torch.from_numpy(preds)
                     preds.to(outputs.device)
-                    sequence = test_loader.dataset.sequences[batch.frame_inds[0][0]]
-                    pose = test_loader.dataset.poses[batch.frame_inds[0][0]][batch.frame_inds[0][1]]
+                    sequence = test_loader.dataset.sequences[batch.frame_inds[0][0]]       #  '08'
+                    pose = test_loader.dataset.poses[batch.frame_inds[0][0]][batch.frame_inds[0][1]]   # (4, 4) transformer matrix
                     if sequence not in self.instances:
                         self.instances[sequence] = {}
                     #ins_preds = net.ins_pred(preds, centers_output, var_output, embedding, batch.points)
-                    ins_preds, new_instances, ins_id = net.ins_pred_in_time(config, preds, centers_output, var_output, embedding, self.instances[sequence],
-                                                     self.next_ins_id, batch.points, batch.times.unsqueeze(1), pose)
+                    ins_preds, new_instances, ins_id = net.ins_pred_in_time(config, preds, centers_output, var_output, embedding, self.instances[sequence],  #   (166205) 0-20;     ; 21 
+                                                     self.next_ins_id, batch.points, batch.times.unsqueeze(1), pose)                         # return: instance ids for all points, and new instances and next available ins_id
 
-                    self.next_ins_id = ins_id#update next available ins id
-                    for ins_id, instance in new_instances.items(): #add new instances to history
-                        self.instances[sequence][ins_id] = instance
+                    self.next_ins_id = ins_id                      #update next available ins id
+                    for ins_id, instance in new_instances.items(): #add new instances to history    # instance.keys(): mean, var, life, bbox 6, bbox_proj, tracker, kalman_bbox (7, )
+                        self.instances[sequence][ins_id] = instance          # ins_id : (1,2,3,4,5,6,7,9,10), (),(15, 16, 17, 18, 19, 20) ; self.instances[sequence] is dict
 
                     dont_track_ids = []
                     for ins_id in self.instances[sequence].keys():
@@ -852,18 +854,18 @@ class ModelTester:
                     for ins_id in dont_track_ids:
                         del self.instances[sequence][ins_id]
 
-                # Get probs and labels
-                stk_probs = softmax(outputs).cpu().detach().numpy()
-                ins_preds = ins_preds.cpu().detach().numpy()
-                centers_output = centers_output.cpu().detach().numpy()
-                lengths = batch.lengths[0].cpu().numpy()
-                f_inds = batch.frame_inds.cpu().numpy()
-                r_inds_list = batch.reproj_inds
-                r_mask_list = batch.reproj_masks
-                f_inc_r_inds_list = batch.f_inc_reproj_inds
-                f_inc_r_mask_list = batch.f_inc_reproj_masks
+                # Get probs and labels                                   
+                stk_probs = softmax(outputs).cpu().detach().numpy()      # (N, 19)  166205
+                ins_preds = ins_preds.cpu().detach().numpy()             # (N, )    166205
+                centers_output = centers_output.cpu().detach().numpy()   #  (N, 1)  ; between [0, 1]   166205
+                lengths = batch.lengths[0].cpu().numpy()                 # 166205
+                f_inds = batch.frame_inds.cpu().numpy()                  # [[0, 1]]
+                r_inds_list = batch.reproj_inds                          # (126340, )  
+                r_mask_list = batch.reproj_masks                         # (127279, )  True or False ; np.count_nonzero(proj_mask == True) --> 126340
+                f_inc_r_inds_list = batch.f_inc_reproj_inds              # (126423, ) [1, 166203];  (126462, )  [1, 166204]
+                f_inc_r_mask_list = batch.f_inc_reproj_masks             # (127351, );  (127405, ); False or True
 
-                labels_list = batch.val_labels
+                labels_list = batch.val_labels                           # between [0, 19]   509116
                 torch.cuda.synchronize(self.device)
 
                 t += [time.time()]
@@ -872,22 +874,22 @@ class ModelTester:
                 # ***************************************
 
                 i0 = 0
-                for b_i, length in enumerate(lengths):
+                for b_i, length in enumerate(lengths):                  # batch length 166205
 
                     # Get prediction
-                    probs = stk_probs[i0:i0 + length]
-                    c_probs = centers_output[i0:i0 + length]
-                    ins_probs = ins_preds[i0:i0 + length]
-                    proj_inds = r_inds_list[b_i]
-                    proj_mask = r_mask_list[b_i]
-                    frame_labels = labels_list[b_i]
+                    probs = stk_probs[i0:i0 + length]                   # (166205, 19)
+                    c_probs = centers_output[i0:i0 + length]            # (166205)
+                    ins_probs = ins_preds[i0:i0 + length]               # (166205)
+                    proj_inds = r_inds_list[b_i]                        # (126340, )   [0, 166200]
+                    proj_mask = r_mask_list[b_i]                        # (127279); ture or false; np.count_nonzero(proj_mask == True) --> 126340
+                    frame_labels = labels_list[b_i]                     # 509116
                     s_ind = f_inds[b_i, 0]
                     f_ind = f_inds[b_i, 1]
 
-                    # Project predictions on the frame points
-                    proj_probs = probs[proj_inds]
-                    proj_c_probs = c_probs[proj_inds]
-                    proj_ins_probs = ins_probs[proj_inds]
+                    # Project predictions on the frame points           # proj_inds: (126340, )   [0, 131264]
+                    proj_probs = probs[proj_inds]                       # 126340
+                    proj_c_probs = c_probs[proj_inds]                   # 126340
+                    proj_ins_probs = ins_probs[proj_inds]               # 126340
 
                     # Safe check if only one point:
                     if proj_probs.ndim < 2:
@@ -900,7 +902,7 @@ class ModelTester:
                     if test_loader.dataset.set == 'validation':
                         folder = 'val_probs'
                         pred_folder = 'val_predictions'
-                    else:
+                    else:  # test
                         folder = 'probs'
                         pred_folder = 'predictions'
                     filename = '{:s}_{:07d}.npy'.format(seq_name, f_ind)
@@ -914,34 +916,34 @@ class ModelTester:
                     #    frame_probs_uint8 = np.load(filepath)
                     #    ins_preds = np.load(filepath_i)
                     #else:
-                    frame_probs_uint8 = np.zeros((proj_mask.shape[0], nc_model), dtype=np.uint8)
-                    frame_c_probs = np.zeros((proj_mask.shape[0], 1))
-                    ins_preds = np.zeros((proj_mask.shape[0]))
+                    frame_probs_uint8 = np.zeros((proj_mask.shape[0], nc_model), dtype=np.uint8)    # (127279, 19)
+                    frame_c_probs = np.zeros((proj_mask.shape[0], 1))                               # (127279, 1)
+                    ins_preds = np.zeros((proj_mask.shape[0]))                                      # (127279,)
 
-                    frame_probs = frame_probs_uint8[proj_mask, :].astype(np.float32) / 255
-                    frame_probs = test_smooth * frame_probs + (1 - test_smooth) * proj_probs
-                    frame_probs_uint8[proj_mask, :] = (frame_probs * 255).astype(np.uint8)
-                    ins_preds[proj_mask] = proj_ins_probs
-                    frame_c_probs[proj_mask] = proj_c_probs
+                    frame_probs = frame_probs_uint8[proj_mask, :].astype(np.float32) / 255          # proj_mask: true or false
+                    frame_probs = test_smooth * frame_probs + (1 - test_smooth) * proj_probs        # np.count_nonzero(proj_mask == True) --> 126340
+                    frame_probs_uint8[proj_mask, :] = (frame_probs * 255).astype(np.uint8)          # (127279, 19)
+                    ins_preds[proj_mask] = proj_ins_probs                                           # (127279, )
+                    frame_c_probs[proj_mask] = proj_c_probs                                         # (127279, 1)
 
                     #np.save(filepath, frame_probs_uint8)
                     #print ('Saving {}'.format(filepath_i))
                     np.save(filepath_i, ins_preds)
                     np.save(filepath_c, frame_c_probs)
 
-                    ins_features = {}
+                    ins_features = {}                                                               # ins_features.keys()  [1,2,3,4,5,6,7,9,10]
                     for ins_id in np.unique(ins_preds):
                         if int(ins_id) in self.instances[sequence]:
-                            ins_features[int(ins_id)] = self.instances[sequence][int(ins_id)]['mean']
+                            ins_features[int(ins_id)] = self.instances[sequence][int(ins_id)]['mean']     # (1, 260)
                     filename_f = '{:s}_{:07d}_f.npy'.format(seq_name, f_ind)
                     filepath_f = join(test_path, folder, filename_f)
-                    #np.save(filepath_f, ins_features)
+                    # np.save(filepath_f, ins_features)
 
                     if config.n_test_frames > 1:
                         for fi in range(len(f_inc_r_inds_list[b_i])):
-                            proj_inds = f_inc_r_inds_list[b_i][fi]
-                            proj_mask = f_inc_r_mask_list[b_i][fi]
-                            proj_ins_probs = ins_probs[proj_inds]
+                            proj_inds = f_inc_r_inds_list[b_i][fi]                                  # (126423, )
+                            proj_mask = f_inc_r_mask_list[b_i][fi]                                  # (127351, )
+                            proj_ins_probs = ins_probs[proj_inds]                                   # (126423, )
                             proj_probs = probs[proj_inds]
                             if proj_probs.ndim < 2:
                                 proj_ins_probs = np.expand_dims(proj_ins_probs, 0)
@@ -991,7 +993,7 @@ class ModelTester:
                                 frame_probs_uint8_bis = np.insert(frame_probs_uint8_bis, l_ind, 0, axis=1)
 
                         # Predicted labels
-                        frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8_bis,
+                        frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8_bis,         # (N, )
                                                                                  axis=1)].astype(np.int32)
 
                         np.save(filepath, frame_preds)
@@ -1035,7 +1037,7 @@ class ModelTester:
                                 frame_probs_uint8 = np.insert(frame_probs_uint8, l_ind, 0, axis=1)
 
                         # Predicted labels
-                        frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8,
+                        frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8,               #  (N, 1) between [0, 19]
                                                                                  axis=1)].astype(np.int32)
                         np.save(filepath, frame_preds)
                         if f_inds[b_i, 1] % 100 == 0:

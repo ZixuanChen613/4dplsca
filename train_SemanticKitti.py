@@ -232,8 +232,8 @@ if __name__ == '__main__':
     # Choose here if you want to start training from a previous snapshot (None for new training)
 
     #previous_training_path = 'Log_2020-06-05_17-18-35'
-    # previous_training_path = 'Log_2020-10-06_16-51-05' #'Log_2020-08-30_01-29-20'
-    previous_training_path =''
+    previous_training_path = 'Log_2020-10-06_16-51-05' #'Log_2020-08-30_01-29-20'
+    # previous_training_path =''
     # Choose index of checkpoint to start from. If None, uses the latest chkp
     chkp_idx = None
     if previous_training_path:
@@ -266,8 +266,8 @@ if __name__ == '__main__':
     if previous_training_path:
         config.load(os.path.join('results', previous_training_path))
         config.saving_path = None
-    config.learning_rate = 1e-2 # after pretraining change to 1e-3 
-    config.pre_train = True   # train the model using config.pre_train = True firstly at least for 200 epochs, then train the model using config.pre_train = False
+    config.learning_rate = 1e-3 # after pretraining change to 1e-3, before  1e-2
+    config.pre_train = False   # train the model using config.pre_train = True firstly at least for 200 epochs, then train the model using config.pre_train = False
     config.free_dim = 4
     config.n_frames = 2
     config.reinit_var = True
