@@ -75,12 +75,13 @@ class SemanticKittiDataset(PointCloudDataset):
         self.set = set
 
         # Get a list of sequences
-        if self.set == 'training':
+        if self.set == 'training' or self.set == 'save_feat_training':
             self.sequences = ['{:02d}'.format(i) for i in range(11) if i != 8]
-        elif self.set == 'validation':
+        elif self.set == 'validation' or self.set == 'save_pred_validation':
             self.sequences = ['{:02d}'.format(i) for i in range(11) if i == 8]
         elif self.set == 'test':
             self.sequences = ['{:02d}'.format(i) for i in range(11, 22)]
+            
         else:
             raise ValueError('Unknown set for SemanticKitti data: ', self.set)
 
@@ -178,13 +179,13 @@ class SemanticKittiDataset(PointCloudDataset):
 
         # Choose batch_num in_R and max_in_p depending on validation or training
         if self.set == 'training':
-            self.batch_num = config.batch_num
-            self.max_in_p = config.max_in_points
-            self.in_R = config.in_radius
+            self.batch_num = config.batch_num       # 8
+            self.max_in_p = config.max_in_points    # 11191
+            self.in_R = config.in_radius            # 6.0
         else:
-            self.batch_num = config.val_batch_num
-            self.max_in_p = config.max_val_points
-            self.in_R = config.val_radius
+            self.batch_num = config.val_batch_num   # 1
+            self.max_in_p = config.max_val_points   # 83629
+            self.in_R = config.val_radius           # 51.0
 
         # shared epoch indices and classes (in case we want class balanced sampler)
         if set == 'training':
@@ -309,7 +310,7 @@ class SemanticKittiDataset(PointCloudDataset):
                 # Path of points and labels
                 seq_path = join(self.path, 'sequences', self.sequences[s_ind])
                 velo_file = join(seq_path, 'velodyne', self.frames[s_ind][f_ind - f_inc] + '.bin')
-                if self.set == 'test':
+                if self.set == 'test':                    #########    ??????????????
                     label_file = None
                 else:
                     label_file = join(seq_path, 'labels', self.frames[s_ind][f_ind - f_inc] + '.label')
@@ -344,13 +345,13 @@ class SemanticKittiDataset(PointCloudDataset):
                 #new_points[:, 3:] = points[:, 3:]
 
                 # In case of validation, keep the original points in memory
-                if self.set in ['validation', 'test'] and f_inc == 0:
+                if self.set in ['validation', 'test', 'save_pred_validation', 'save_feat_training'] and f_inc == 0:
                     o_pts = new_points[:, :3].astype(np.float32)
                     o_labels = sem_labels.astype(np.int32)
                     o_center_labels = center_labels
                     o_ins_labels = ins_labels.astype(np.int32)
 
-                if self.set in ['validation', 'test'] and self.config.n_test_frames > 1 and f_inc > 0:
+                if self.set in ['validation', 'test', 'save_pred_validation', 'save_feat_training'] and self.config.n_test_frames > 1 and f_inc > 0:
                     f_inc_points.append(new_points[:, :3].astype(np.float32))
 
 
@@ -365,7 +366,7 @@ class SemanticKittiDataset(PointCloudDataset):
                 # Eliminate points further than config.in_radius
                 mask = np.sum(np.square(new_points[:, :3] - p0), axis=1) < self.in_R ** 2
 
-                if self.set in ['training', 'validation']  and f_inc > 0 and  self.config.n_test_frames == 1:#during training
+                if self.set in ['training', 'validation', 'save_pred_validation', 'save_feat_training']  and f_inc > 0 and  self.config.n_test_frames == 1:#during training
                     #eliminate points which are not belong to any instance class for future frame
 
                     if self.config.sampling == 'objectness':
@@ -380,12 +381,16 @@ class SemanticKittiDataset(PointCloudDataset):
                     else:
                         pass
 
-                if self.set in ['validation', 'test'] and self.config.n_test_frames > 1 and f_inc > 0:
+                if self.set in ['validation', 'test', 'save_pred_validation', 'save_feat_training'] and self.config.n_test_frames > 1 and f_inc > 0:
                     test_path = join('test', self.config.saving_path.split('/')[-1] + str(self.config.n_test_frames))
                     if self.set == 'validation':
                         test_path = join(test_path, 'val_probs')
-                    else:
+                    elif self.set == 'test':
                         test_path = join(test_path, 'probs')
+                    elif self.set == 'save_pred_validation':
+                        test_path = join(test_path, 'save_pred_validation_probs')
+                    else:
+                        test_path = join(test_path, 'save_feat_training_probs')
 
                     if self.config.sampling == 'objectness':
 
@@ -521,7 +526,7 @@ class SemanticKittiDataset(PointCloudDataset):
             t += [time.time()]
 
             # Before augmenting, compute reprojection inds (only for validation and test)
-            if self.set in ['validation', 'test']:
+            if self.set in ['validation', 'test', 'save_pred_validation', 'save_feat_training']:
 
                 # get val_points that are in range
                 radiuses = np.sum(np.square(o_pts - p0), axis=1)
@@ -536,7 +541,7 @@ class SemanticKittiDataset(PointCloudDataset):
                 proj_inds = np.zeros((0,))
                 reproj_mask = np.zeros((0,))
 
-            if self.set in ['validation', 'test'] and self.config.n_test_frames > 1:
+            if self.set in ['validation', 'test', 'save_pred_validation', 'save_feat_training'] and self.config.n_test_frames > 1:
                 f_inc_proj_inds = []
                 f_inc_reproj_mask = []
                 for i in range(len(f_inc_points)):
@@ -551,7 +556,7 @@ class SemanticKittiDataset(PointCloudDataset):
 
             t += [time.time()]
 
-            if self.set in ['validation', 'test']:
+            if self.set in ['validation', 'test', 'save_pred_validation', 'save_feat_training']:
                 # Data augmentation
                 _, scale, R = self.augmentation_transform(in_pts)
             else:
@@ -599,12 +604,12 @@ class SemanticKittiDataset(PointCloudDataset):
         # Concatenate batch
         ###################
         #print (c_list.shape)
-        centers = np.concatenate(c_list, axis=0) if not self.set  == 'validation' else np.concatenate(val_center_label_list, axis=0)
+        centers = np.concatenate(c_list, axis=0) if self.set in ['training', 'test'] else np.concatenate(val_center_label_list, axis=0)
         times = np.concatenate(t_list, axis=0)
         stacked_points = np.concatenate(p_list, axis=0)
         features = np.concatenate(f_list, axis=0)
         labels = np.concatenate(l_list, axis=0)
-        ins_labels = np.concatenate(ins_l_list, axis=0) if not self.set == 'validation' else np.concatenate(val_ins_labels_list, axis=0)
+        ins_labels = np.concatenate(ins_l_list, axis=0) if self.set in ['training', 'test'] else np.concatenate(val_ins_labels_list, axis=0)
         frame_inds = np.array(fi_list, dtype=np.int32)
         frame_centers = np.stack(p0_list, axis=0)
         stack_lengths = np.array([pp.shape[0] for pp in p_list], dtype=np.int32)
@@ -766,7 +771,7 @@ class SemanticKittiDataset(PointCloudDataset):
         # For each class list the frames containing them
         ################################################
 
-        if self.set in ['training', 'validation']:
+        if self.set in ['training', 'validation']:        ########??????????
 
             class_frames_bool = np.zeros((0, self.num_classes), dtype=np.bool)
             self.class_proportions = np.zeros((self.num_classes,), dtype=np.int32)
@@ -1456,7 +1461,7 @@ class SemanticKittiCustomBatch:
         input_list = input_list[0]
 
         # Number of layers
-        L = int(input_list[0])
+        L = int(input_list[0])                 # 6
 
         # Extract input tensors from the list of numpy array
         ind = 1
@@ -1486,7 +1491,7 @@ class SemanticKittiCustomBatch:
         ind += 1
         self.times = torch.from_numpy(input_list[ind])
         ind += 1
-        self.ins_labels = torch.from_numpy(input_list[ind])
+        self.ins_labels = torch.from_numpy(input_list[ind])                # 123389
         ind += 1
         self.reproj_inds = input_list[ind]
         ind += 1

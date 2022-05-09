@@ -1,3 +1,6 @@
+import pdb
+pdb.set_trace()
+
 import numpy as np
 import torch
 import yaml
@@ -116,27 +119,27 @@ def associate_instances_overlapping_frames(previous_ins_label, current_ins_label
     return association_costs_matched,  associations
 
 def main(FLAGS):
-    data_cfg = 'data/SemanticKitti/semantic-kitti.yaml'
+    data_cfg = '/data1/zixuan.chen/code/contrastive_association/cont_assoc/data/kitti/semantic-kitti.yaml'
     DATA = yaml.safe_load(open(data_cfg, 'r'))
     split = 'valid'
-    dataset = 'data/SemanticKitti'
+    dataset = '/data1/zixuan.chen/code/contrastive_association/cont_assoc/data/kitti'
 
     prediction_dir =  FLAGS.predictions
     if split == 'valid':
         prediction_path = '{}/val_probs'.format(prediction_dir)
     else:
         prediction_path = '{}/probs'.format(prediction_dir)
-    n_test_frames = FLAGS.n_test_frames
+    n_test_frames = FLAGS.n_test_frames                       # 4
 
-    association_weights = [FLAGS.iou_3d, FLAGS.iou_2d, FLAGS.center, FLAGS.feature]
+    association_weights = [FLAGS.iou_3d, FLAGS.iou_2d, FLAGS.center, FLAGS.feature]  # [0, 0, 0, 0]
 
     association_names = ['3d', '2d', 'cen', 'fet']
     assoc_saving = [asc_type for idx, asc_type in enumerate(association_names) if
                     association_weights[idx] > 0]
     assoc_saving.append(str(n_test_frames))
     assoc_saving = '_'.join(assoc_saving)
-
-    save_path = '{}/stitch'.format(prediction_dir)+assoc_saving
+                  
+    save_path = '{}/stitch'.format(prediction_dir)+assoc_saving      # /stitch4   
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
@@ -147,31 +150,31 @@ def main(FLAGS):
 
     inv_learning_map = np.zeros((np.max([k for k in inv_learning_map_doc.keys()]) + 1), dtype=np.int32)
     for k, v in inv_learning_map_doc.items():
-        inv_learning_map[k] = v
+        inv_learning_map[k] = v   # [0, 10, 11, 15, 18, 20, 30, 31, 32, 40, 44, 48, 49, 50, 51, 70, 71, 72, 80, 81]
 
     # get number of interest classes, and the label mappings
     # class
-    class_remap = DATA["learning_map"]
+    class_remap = DATA["learning_map"] 
     class_inv_remap = DATA["learning_map_inv"]
     class_ignore = DATA["learning_ignore"]
-    nr_classes = len(class_inv_remap)
-    class_strings = DATA["labels"]
+    nr_classes = len(class_inv_remap)                # 20
+    class_strings = DATA["labels"] 
 
     # make lookup table for mapping
     # class
-    maxkey = max(class_remap.keys())
+    maxkey = max(class_remap.keys())                 # 259
 
     # +100 hack making lut bigger just in case there are unknown labels
-    class_lut = np.zeros((maxkey + 100), dtype=np.int32)
+    class_lut = np.zeros((maxkey + 100), dtype=np.int32)                 # 359
     class_lut[list(class_remap.keys())] = list(class_remap.values())
 
     # class
-    ignore_class = [cl for cl, ignored in class_ignore.items() if ignored]
+    ignore_class = [cl for cl, ignored in class_ignore.items() if ignored]   # [0]
 
     print("Ignoring classes: ", ignore_class)
 
     # get test set
-    test_sequences = DATA["split"][split]
+    test_sequences = DATA["split"][split]                # [8]
 
     # get label paths
 
@@ -203,7 +206,7 @@ def main(FLAGS):
         if not os.path.exists(os.path.join(save_path, 'sequences', '{0:02d}'.format(sequence), 'predictions')):
             os.makedirs(os.path.join(save_path, 'sequences', '{0:02d}'.format(sequence), 'predictions'))
 
-        for idx, point_file in zip(range(len(point_names)), point_names):
+        for idx, point_file in zip(range(len(point_names)), point_names):   # number 4071
             times = []
             times.append(time.time())
             pose = poses_seq[idx]
@@ -213,16 +216,16 @@ def main(FLAGS):
             ins_path = os.path.join(prediction_path, '{0:02d}_{1:07d}_i.npy'.format(sequence,idx))
             fet_path = os.path.join(prediction_path, '{0:02d}_{1:07d}_f.npy'.format(sequence, idx))
 
-            label_sem_class = np.load(sem_path)
-            label_inst = np.load(ins_path)
+            label_sem_class = np.load(sem_path)                             # (123389,)
+            label_inst = np.load(ins_path)                                  # (123389,)   between [43, 53]
             frame_points = np.fromfile(point_file, dtype=np.float32)
-            points = frame_points.reshape((-1, 4))
-            hpoints = np.hstack((points[:, :3], np.ones_like(points[:, :1])))
-            new_points = np.sum(np.expand_dims(hpoints, 2) * pose.T, axis=1)
-            points = new_points[:, :3]
+            points = frame_points.reshape((-1, 4))                          # (123389, 3)
+            hpoints = np.hstack((points[:, :3], np.ones_like(points[:, :1])))  # (123389, 4)
+            new_points = np.sum(np.expand_dims(hpoints, 2) * pose.T, axis=1)   # (123389, 4) 
+            points = new_points[:, :3]                                      # (123389, 3)
 
-            things = (label_sem_class < 9) & (label_sem_class > 0)
-            ins_ids = np.unique(label_inst * things)
+            things = (label_sem_class < 9) & (label_sem_class > 0)          # np.where(things==True)[0] ---> 2059
+            ins_ids = np.unique(label_inst * things)                        # things instance index
 
             if os.path.exists(fet_path):
                 features = np.load(fet_path, allow_pickle=True).tolist()
@@ -231,14 +234,14 @@ def main(FLAGS):
                 for ins_id in ins_ids:
                     features[ins_id] = torch.from_numpy(np.zeros((1,1)))
 
-            projections = do_range_projection(points)
+            projections = do_range_projection(points)           # (2, 123389)
             points = torch.from_numpy(points)
             new_instances = {}
 
             label_inst = torch.from_numpy(label_inst.astype(np.int32))
 
             # get instances from current frames to track
-            for ins_id in ins_ids:
+            for ins_id in ins_ids:                                        # ins_id = 43 ---> 53
                 if ins_id == 0:
                     continue
                 if int(ins_id) not in features:
@@ -247,21 +250,21 @@ def main(FLAGS):
                     continue
 
                 mean = features[int(ins_id)]
-                ids = np.where(label_inst == ins_id)
-                if ids[0].shape[0] < 25:
-                    label_inst[ids] = 0
+                ids = np.where(label_inst == ins_id)                         
+                if ids[0].shape[0] < 25:                       
+                    label_inst[ids] = 0                                  # n_ins < 25 ----> remove
                     continue
 
-                (values, counts) = np.unique(label_sem_class[ids], return_counts=True)
-                inst_class = values[np.argmax(counts)]
+                (values, counts) = np.unique(label_sem_class[ids], return_counts=True)   # 1, 314
+                inst_class = values[np.argmax(counts)]                                   # 1
 
-                new_ids = remove_outliers(points[ids])
-                new_ids = ids[0][new_ids]
+                new_ids = remove_outliers(points[ids])                           # (314, )
+                new_ids = ids[0][new_ids]                                        # (291, )
 
                 bbox, kalman_bbox = get_bbox_from_points(points[ids])
                 tracker = KalmanBoxTracker(kalman_bbox, ins_id)
                 center = get_median_center_from_points(points[ids])
-                bbox_proj = get_2d_bbox(projections[:, new_ids])
+                bbox_proj = get_2d_bbox(projections[:, new_ids])             # remove outliers to get bbox
                 new_instances[ins_id] = {'life': 5, 'bbox': bbox, 'bbox_proj': bbox_proj, 'center' : center, 'n_point':ids[0].shape[0],
                                          'tracker': tracker, 'kalman_bbox': kalman_bbox, 'mean':mean, 'class' : inst_class}
             new_instances_prev = {}
@@ -398,11 +401,11 @@ def main(FLAGS):
 
                     del new_instances[new_id]
 
-            for ins_id, instance in new_instances.items():  # add new instances to history
+            for ins_id, instance in new_instances.items():  # add new instances to history     # 43, 44, 46, 47, 48, 49, 50
                 ids = np.where(label_inst == ins_id)
                 if ids[0].shape[0] < 50:
                     continue
-                prev_instances[ins_id] = instance
+                prev_instances[ins_id] = instance          # n_ins > 50 ---> prev_ins
 
             # kill instances which are not tracked for a  while
             dont_track_ids = []
@@ -416,21 +419,21 @@ def main(FLAGS):
 
             times.append(time.time()) # updating ids
 
-            ins_preds = label_inst.cpu().numpy()
+            ins_preds = label_inst.cpu().numpy()         # (123389,)    # [0, 43, 44, 46, 47, 48, 49, 50] remove the ins with number less than 25
 
             #clean instances which have too few points
-            for ins_id in np.unique(ins_preds):
+            for ins_id in np.unique(ins_preds):              # [0, 43, 44, 46, 47, 48, 49, 50]
                 if ins_id == 0:
                     continue
-                valid_ind = np.argwhere(ins_preds == ins_id)[:, 0]
-                ins_preds[valid_ind] = ins_id+20
+                valid_ind = np.argwhere(ins_preds == ins_id)[:, 0]     # ins_id = 43 ----> n_ins = 314
+                ins_preds[valid_ind] = ins_id+20                       # ??????????   43 -----> 63   ??????????
                 if valid_ind.shape[0] < 25:
-                    ins_preds[valid_ind] = 0
-
-            for sem_id in np.unique(label_sem_class):
+                    ins_preds[valid_ind] = 0              
+                                                                       # [0, 63, 64, 66, 67, 68, 69, 70] ???
+            for sem_id in np.unique(label_sem_class):                  # [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] without 8
                 if sem_id < 1 or sem_id > 8:
-                    valid_ind = np.argwhere((label_sem_class == sem_id) & (ins_preds == 0))[:, 0]
-                    ins_preds[valid_ind] = sem_id
+                    valid_ind = np.argwhere((label_sem_class == sem_id) & (ins_preds == 0))[:, 0]    # (4194,) semantic class = 0 and ins_id = 0
+                    ins_preds[valid_ind] = sem_id                      # label instance which doesn't belong to things  
 
             #write instances to label file which is binary
             ins_preds = ins_preds.astype(np.int32)
