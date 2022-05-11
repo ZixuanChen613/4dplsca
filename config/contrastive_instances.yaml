@@ -15,8 +15,8 @@ DATA_CONFIG:
             CUBOIDS: True
             CONTOUR: True
         SHUFFLE: True
-        DATA_DIM: 128
-        NUM_WORKER: 6
+        DATA_DIM: 256  # 128
+        NUM_WORKER: 0
 
 TRAIN:
     MAX_EPOCH: 100
@@ -33,9 +33,9 @@ TRAIN:
 MODEL:
     NAME: ContrastiveTracking
     ENCODER:
-        OUTPUT_DIM: 1024
+        OUTPUT_DIM: 2048 # 1024
         NAME: sparse
-        CHANNELS: [1, 2, 4, 8] #128, 256, 512, 1024
+        CHANNELS: [1, 2, 4, 8] #256, 512, 1024, 2048
     USE_POSES: True
 
 TRACKING:

@@ -1,3 +1,6 @@
+import pdb
+pdb.set_trace()
+
 import os
 import numpy as np
 import torch
@@ -299,7 +302,7 @@ class collateInstances:
             'n_pts' : n_pts,                #number of points depicting the instance
             'pt_coors' : pt_coors,          #xyz coordinates for each point [n_pts,3]
             'pt_coors_T' : pt_coors_T,      #global points coordinates [n_pts,3]
-            'pt_features' : pt_features,    #features for every point [n_pts,128]
+            'pt_features' : pt_features,    #features for every point [n_pts,256]
             'pose' : pose,                  #scan center global position
             }
 
