@@ -70,19 +70,20 @@ def feat_voxel2point(features, inputs):
     return point_feat
 
 def majority_voting(sem_preds, pred_ins_ids):
-    merged_sem_preds = []
-    for i in range(len(sem_preds)): #all scans in the batch
-        sem = sem_preds[i].copy()
-        ins_ids = np.unique(pred_ins_ids[i])
-        for _id in ins_ids: #all instances
-            if _id == 0: # ignore stuff
-                continue
-            ind = np.where(pred_ins_ids[i] == _id) #indices of instances with _id
-            # if ind[0].shape[0] < 30: #filter instances with few points
-                # continue
-            #majority voting
-            (classes, cnts) = np.unique(sem[ind], return_counts=True)
-            inst_class = classes[np.argmax(cnts)]
-            sem[ind] = inst_class
-        merged_sem_preds.append(sem)
-    return merged_sem_preds
+    # merged_sem_preds = []
+    # for i in range(len(sem_preds)): #all scans in the batch
+    sem = sem_preds.copy()
+    ins_ids = np.unique(pred_ins_ids)
+    for _id in ins_ids: #all instances
+        if _id == 0: # ignore stuff
+            continue
+        ind = np.where(pred_ins_ids == _id) #indices of instances with _id
+        # if ind[0].shape[0] < 30: #filter instances with few points
+            # continue
+        #majority voting
+        (classes, cnts) = np.unique(sem[ind], return_counts=True)
+        inst_class = classes[np.argmax(cnts)]
+        sem[ind] = inst_class
+    return sem
+        # merged_sem_preds.append(sem)
+    # return merged_sem_preds
