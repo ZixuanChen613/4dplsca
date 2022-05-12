@@ -198,7 +198,7 @@ if __name__ == '__main__':
                              batch_size=1,
                              sampler=test_sampler,
                              collate_fn=collate_fn,
-                             num_workers=5,     #config.input_threads, 0
+                             num_workers=10,     #config.input_threads, 0
                              pin_memory=True)
 
     # Calibrate samplers

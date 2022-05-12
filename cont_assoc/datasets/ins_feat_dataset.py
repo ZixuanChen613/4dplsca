@@ -1,6 +1,5 @@
-import pdb
-pdb.set_trace()
-
+# import pdb
+# pdb.set_trace()
 import os
 import numpy as np
 import torch
@@ -154,7 +153,7 @@ class InstanceFeatures(Dataset):
         # select random scan based on index
         fname = self.im_idx[index]
         scan = int(fname[-10:-4])
-        seq = fname[-19:-17]
+        seq = fname[-20:-18]   #
         scans = [scan]
         pos_idx = [index]
         #select all scans in the sequence
@@ -184,7 +183,7 @@ class InstanceFeatures(Dataset):
 
         for i in range(len(scans)):
             if i == 0:
-                prev_scan_path = absoluteDirPath(self.data_path+seq+'/scans/'+str(prev_scan).zfill(6)+'.npy')
+                prev_scan_path = absoluteDirPath(self.data_path+seq+'/scans/'+str(prev_scan).zfill(7)+'.npy')
                 if os.path.exists(prev_scan_path):
                     prev_data = np.load(prev_scan_path,allow_pickle=True)
                     prev_pose = self.poses[prev_scan]
@@ -196,7 +195,7 @@ class InstanceFeatures(Dataset):
                     prev_ids = []
                     prev_coors = []
                     prev_coors_T = []
-            scan_path = absoluteDirPath(self.data_path+seq+'/scans/'+str(scans[i]).zfill(6)+'.npy')
+            scan_path = absoluteDirPath(self.data_path+seq+'/scans/'+str(scans[i]).zfill(7)+'.npy')
             if os.path.exists(scan_path):
                 #Check max number of points to avoid running out of memory
                 if sum(n_pts) > 100000: #max n_pts=5e5, bs=4 --> max n_pts=125k

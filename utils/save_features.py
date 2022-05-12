@@ -1,12 +1,13 @@
-# import pdb
-# pdb.set_trace()
+import pdb
+pdb.set_trace()
 import numpy as np
 import os
 import torch
 from shutil import copyfile
-
+import cont_assoc.utils.predict as pred
 #Save point features for contrastive approach
 def save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, proj_mask, ins_preds, frame_preds, save_preds):
+
 
     _ids = []
     _sem_labels = []
@@ -19,9 +20,12 @@ def save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, p
     feat = pt_features       # (123389, 256)
     frame_preds = frame_preds.astype(np.int64)
     ins_preds = ins_preds.astype(np.int32)
+
+    frame_preds = pred.majority_voting(frame_preds, ins_preds)
+    
     if save_preds:
-        sem = frame_preds.astype(np.int64)
-        ins = ins_preds.astype(np.int32)
+        sem = frame_preds
+        ins = ins_preds
         valid = ins != 0
         seq_path = '/data1/zixuan.chen/data/validation_predictions/sequences/'+seq+'/'
         max_pt = 30
@@ -38,7 +42,7 @@ def save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, p
     for ii in range(len(ids)):
         if n_ids[ii] <= max_pt:
             continue
-        pt_idx = np.where(ins==ids[ii])[0]
+        pt_idx = np.where(ins==ids[ii])[0]      # number is n_ids
         coors = torch.tensor(pt_coors[pt_idx])
         sem_label = np.unique(sem[pt_idx])
         features = torch.tensor(feat[pt_idx]).type(torch.float32)

@@ -24,7 +24,6 @@
 # import pdb
 # pdb.set_trace()
 from utils.save_features import save_features
-
 # Basic libs
 import torch
 import torch.nn as nn
@@ -314,6 +313,7 @@ class ModelTester:
                     velo_file = join(seq_path, 'velodyne', test_loader.dataset.frames[s_ind][f_ind] + '.bin')
                     frame_points = np.fromfile(velo_file, dtype=np.float32)                         # (123398)
                     frame_points = frame_points.reshape((-1, 4))
+
 
                     ############################################
 
