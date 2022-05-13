@@ -1,0 +1,48 @@
+nohup: ignoring input
+
+Data Preparation
+****************
+
+Starting Calibration (use verbose=True for more details)
+
+Previous calibration found:
+Check batch limit dictionary
+[92m"random_51.000_0.061_1_83629": 1[0m
+Check neighbors limit dictionary
+[92m"random_83629_0.061_0.152": 18[0m
+[92m"random_83629_0.122_0.305": 26[0m
+[92m"random_83629_0.244_0.610": 30[0m
+[92m"random_83629_0.488_1.220": 32[0m
+[92m"random_83629_0.976_2.440": 33[0m
+[92m"random_83629_1.952_4.880": 33[0m
+Calibration done in 0.0s
+
+
+Model Preparation
+*****************
+Model and training state restored.
+Done in 6.3s
+
+
+Start test
+**********
+
+Initialize workers
+Done in 1.2s
+e000-i0000 => 0.0% (timings : 62.42 22.62 12.32) / pots 0 => -1.0%
+e000-i0001 => 0.5% (timings : 797.86 56.13 27.50) / pots 0 => -1.0%
+e000-i0002 => 1.0% (timings : 2140.69 100.14 36.07) / pots 0 => -1.0%
+e000-i0003 => 1.5% (timings : 4065.66 141.38 66.09) / pots 0 => -1.0%
+e000-i0004 => 2.0% (timings : 5886.65 180.68 90.87) / pots 0 => -1.0%
+e000-i0005 => 2.5% (timings : 7637.14 215.87 123.98) / pots 0 => -1.0%
+e000-i0006 => 3.0% (timings : 9297.97 249.79 157.37) / pots 0 => -1.0%
+e000-i0007 => 3.5% (timings : 10870.23 281.51 163.65) / pots 0 => -1.0%
+e000-i0008 => 4.0% (timings : 12366.81 311.47 175.41) / pots 0 => -1.0%
+e000-i0009 => 4.5% (timings : 13805.15 340.32 205.19) / pots 0 => -1.0%
+e000-i0010 => 5.0% (timings : 15156.40 367.31 240.16) / pots 0 => -1.0%
+e000-i0011 => 5.5% (timings : 16445.82 394.20 257.47) / pots 0 => -1.0%
+e000-i0012 => 6.0% (timings : 17666.42 420.27 276.77) / pots 0 => -1.0%
+e000-i0013 => 6.5% (timings : 18823.02 444.14 307.92) / pots 0 => -1.0%
+e000-i0014 => 7.0% (timings : 19936.08 464.28 339.00) / pots 0 => -1.0%
+e000-i0015 => 7.5% (timings : 20984.52 484.71 355.90) / pots 0 => -1.0%
+e000-i0016 => 8.0% (timings : 22041.69 499.04 350.15) / pots 0 => -1.0%

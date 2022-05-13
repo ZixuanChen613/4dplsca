@@ -192,7 +192,7 @@ class SemanticKittiDataset(PointCloudDataset):
             N = int(np.ceil(config.epoch_steps * self.batch_num * 1.1))
         else:
             N = int(np.ceil(config.validation_size * self.batch_num * 1.1))
-        if seqential_batch:
+        if seqential_batch:                                 ####### ??????????????
             N = config.validation_size
         self.epoch_i = torch.from_numpy(np.zeros((1,), dtype=np.int64))
         self.epoch_inds = torch.from_numpy(np.zeros((N,), dtype=np.int64))
@@ -605,11 +605,13 @@ class SemanticKittiDataset(PointCloudDataset):
         ###################
         #print (c_list.shape)
         centers = np.concatenate(c_list, axis=0) if self.set in ['training', 'test'] else np.concatenate(val_center_label_list, axis=0)
+        # centers = np.concatenate(c_list, axis=0) if not self.set  == 'validation' else np.concatenate(val_center_label_list, axis=0)
         times = np.concatenate(t_list, axis=0)
         stacked_points = np.concatenate(p_list, axis=0)
         features = np.concatenate(f_list, axis=0)
         labels = np.concatenate(l_list, axis=0)
         ins_labels = np.concatenate(ins_l_list, axis=0) if self.set in ['training', 'test'] else np.concatenate(val_ins_labels_list, axis=0)
+        # ins_labels = np.concatenate(ins_l_list, axis=0) if not self.set == 'validation' else np.concatenate(val_ins_labels_list, axis=0)
         frame_inds = np.array(fi_list, dtype=np.int32)
         frame_centers = np.stack(p0_list, axis=0)
         stack_lengths = np.array([pp.shape[0] for pp in p_list], dtype=np.int32)
@@ -771,7 +773,7 @@ class SemanticKittiDataset(PointCloudDataset):
         # For each class list the frames containing them
         ################################################
 
-        if self.set in ['training', 'validation']:        ########??????????
+        if self.set in ['training', 'validation', 'save_pred_validation', 'save_feat_training']:        ########??????????
 
             class_frames_bool = np.zeros((0, self.num_classes), dtype=np.bool)
             self.class_proportions = np.zeros((self.num_classes,), dtype=np.int32)

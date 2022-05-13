@@ -35,7 +35,7 @@ def save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, p
         valid = np.where((proj_mask==True) & (ins!=0))[0]  # (119195,)   valid instance flag ; (119195, 1) True
         seq_path = '/data1/zixuan.chen/data/instance_features/sequences/'+seq+'/'
         max_pt = 10
-        sem = pred.majority_voting(sem, ins)
+        # sem = pred.majority_voting(sem, ins)
 
 
     ids, n_ids = np.unique(ins[valid],return_counts=True) # ins[valid]: (4322, 1)

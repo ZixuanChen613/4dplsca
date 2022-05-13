@@ -104,7 +104,7 @@ if __name__ == '__main__':
     chkp_idx = None
 
     # Choose to save prediction features on validation or train split
-    on_val = False     # True： validation; False:
+    on_val = False     # True： validation; False: training
 
     # Deal with 'last_XXXXXX' choices
     chosen_log = model_choice(chosen_log)
@@ -146,8 +146,8 @@ if __name__ == '__main__':
 
     config.global_fet = False
     config.validation_size = 200
-    config.input_threads = 16
-    config.n_frames = 4    # 4
+    config.input_threads = 0 #16
+    config.n_frames = 4   
     config.n_test_frames = 4 #it should be smaller than config.n_frames
     if config.n_frames < config.n_test_frames:
         config.n_frames = config.n_test_frames
@@ -198,7 +198,7 @@ if __name__ == '__main__':
                              batch_size=1,
                              sampler=test_sampler,
                              collate_fn=collate_fn,
-                             num_workers=10,     #config.input_threads, 0
+                             num_workers=0,     #config.input_threads, 0
                              pin_memory=True)
 
     # Calibrate samplers
