@@ -119,10 +119,10 @@ def associate_instances_overlapping_frames(previous_ins_label, current_ins_label
     return association_costs_matched,  associations
 
 def main(FLAGS):
-    data_cfg = '/data1/zixuan.chen/code/contrastive_association/cont_assoc/data/kitti/semantic-kitti.yaml'
+    data_cfg = '/data1/zixuan.chen/data/kitti/semantic-kitti.yaml'
     DATA = yaml.safe_load(open(data_cfg, 'r'))
     split = 'valid'
-    dataset = '/data1/zixuan.chen/code/contrastive_association/cont_assoc/data/kitti'
+    dataset = '/data1/zixuan.chen/data/kitti'
 
     prediction_dir =  FLAGS.predictions
     if split == 'valid':
@@ -217,14 +217,14 @@ def main(FLAGS):
             fet_path = os.path.join(prediction_path, '{0:02d}_{1:07d}_f.npy'.format(sequence, idx))
 
             label_sem_class = np.load(sem_path)                             # (123389,)
-            label_inst = np.load(ins_path)                                  # (123389,)   between [43, 53]
+            label_inst = np.load(ins_path)                                  # (123389,)   between [0, 13]
             frame_points = np.fromfile(point_file, dtype=np.float32)
             points = frame_points.reshape((-1, 4))                          # (123389, 3)
             hpoints = np.hstack((points[:, :3], np.ones_like(points[:, :1])))  # (123389, 4)
             new_points = np.sum(np.expand_dims(hpoints, 2) * pose.T, axis=1)   # (123389, 4) 
             points = new_points[:, :3]                                      # (123389, 3)
 
-            things = (label_sem_class < 9) & (label_sem_class > 0)          # np.where(things==True)[0] ---> 2059
+            things = (label_sem_class < 9) & (label_sem_class > 0)          # np.where(things==True)[0] ---> 2056
             ins_ids = np.unique(label_inst * things)                        # things instance index
 
             if os.path.exists(fet_path):
@@ -244,9 +244,9 @@ def main(FLAGS):
             for ins_id in ins_ids:                                        # ins_id = 43 ---> 53
                 if ins_id == 0:
                     continue
-                if int(ins_id) not in features:
+                if int(ins_id) not in features:                           # if new id comes in the new frame
                     ids = np.where(label_inst == ins_id)
-                    label_inst[ids] = 0
+                    label_inst[ids] = 0                                   # set label = 0 ????
                     continue
 
                 mean = features[int(ins_id)]
@@ -255,16 +255,16 @@ def main(FLAGS):
                     label_inst[ids] = 0                                  # n_ins < 25 ----> remove
                     continue
 
-                (values, counts) = np.unique(label_sem_class[ids], return_counts=True)   # 1, 314
+                (values, counts) = np.unique(label_sem_class[ids], return_counts=True)   # 1, 306
                 inst_class = values[np.argmax(counts)]                                   # 1
 
-                new_ids = remove_outliers(points[ids])                           # (314, )
-                new_ids = ids[0][new_ids]                                        # (291, )
+                new_ids = remove_outliers(points[ids])                           # (306, )
+                new_ids = ids[0][new_ids]                                        # (262, )  remove outliers
 
-                bbox, kalman_bbox = get_bbox_from_points(points[ids])
+                bbox, kalman_bbox = get_bbox_from_points(points[ids])            # 17.1, -15.2, -1.2, 18.6, -11.3, -0.07
                 tracker = KalmanBoxTracker(kalman_bbox, ins_id)
-                center = get_median_center_from_points(points[ids])
-                bbox_proj = get_2d_bbox(projections[:, new_ids])             # remove outliers to get bbox
+                center = get_median_center_from_points(points[ids])              # 17.2 -12.8 -0.7
+                bbox_proj = get_2d_bbox(projections[:, new_ids])             # remove outliers to get 2D bbox  [1206, 14, 1252, 27]
                 new_instances[ins_id] = {'life': 5, 'bbox': bbox, 'bbox_proj': bbox_proj, 'center' : center, 'n_point':ids[0].shape[0],
                                          'tracker': tracker, 'kalman_bbox': kalman_bbox, 'mean':mean, 'class' : inst_class}
             new_instances_prev = {}
@@ -401,15 +401,15 @@ def main(FLAGS):
 
                     del new_instances[new_id]
 
-            for ins_id, instance in new_instances.items():  # add new instances to history     # 43, 44, 46, 47, 48, 49, 50
+            for ins_id, instance in new_instances.items():  # add new instances to history     # [1, 2, 4, 5, 6 ,7, 11], [17, 18, 23, 24, 28]
                 ids = np.where(label_inst == ins_id)
-                if ids[0].shape[0] < 50:
+                if ids[0].shape[0] < 50:                   # drop ins 11
                     continue
-                prev_instances[ins_id] = instance          # n_ins > 50 ---> prev_ins
+                prev_instances[ins_id] = instance          # n_ins > 50 add into ---> prev_ins
 
             # kill instances which are not tracked for a  while
             dont_track_ids = []
-            for ins_id in prev_instances.keys():
+            for ins_id in prev_instances.keys():          # [1, 2, 4, 5, 6 ,7], [1, 2, 4, 5, 6 ,7, 17, 18, 23, 24, 28]
                 if prev_instances[ins_id]['life'] == 0:
                     dont_track_ids.append(ins_id)
                 prev_instances[ins_id]['life'] -= 1
@@ -422,16 +422,16 @@ def main(FLAGS):
             ins_preds = label_inst.cpu().numpy()         # (123389,)    # [0, 43, 44, 46, 47, 48, 49, 50] remove the ins with number less than 25
 
             #clean instances which have too few points
-            for ins_id in np.unique(ins_preds):              # [0, 43, 44, 46, 47, 48, 49, 50]
+            for ins_id in np.unique(ins_preds):              # [0, 1, 2, 4, 5, 6, 7, 11], [0, 1, 2, 4, 6, 17, 18, 23, 24, 28]
                 if ins_id == 0:
                     continue
-                valid_ind = np.argwhere(ins_preds == ins_id)[:, 0]     # ins_id = 43 ----> n_ins = 314
+                valid_ind = np.argwhere(ins_preds == ins_id)[:, 0]     # ins_id = 1 ----> n_ins = 306
                 ins_preds[valid_ind] = ins_id+20                       # ??????????   43 -----> 63   ??????????
                 if valid_ind.shape[0] < 25:
                     ins_preds[valid_ind] = 0              
-                                                                       # [0, 63, 64, 66, 67, 68, 69, 70] ???
+                                                                       # [0, 21, 22, 24, 25, 26, 27, 31], [0, 21, 22, 26, 37, 38, 43, 44, 48]
             for sem_id in np.unique(label_sem_class):                  # [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] without 8
-                if sem_id < 1 or sem_id > 8:
+                if sem_id < 1 or sem_id > 8:                           # sem_id [0, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
                     valid_ind = np.argwhere((label_sem_class == sem_id) & (ins_preds == 0))[:, 0]    # (4194,) semantic class = 0 and ins_id = 0
                     ins_preds[valid_ind] = sem_id                      # label instance which doesn't belong to things  
 

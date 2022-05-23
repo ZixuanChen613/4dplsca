@@ -20,8 +20,8 @@
 #           Imports and global variables
 #       \**********************************/
 
-# import pdb
-# pdb.set_trace()
+import pdb
+pdb.set_trace()
 
 # Basic libs
 import os
@@ -45,12 +45,59 @@ from utils.tracking_utils import *
 from scipy.optimize import linear_sum_assignment
 #from utils.visualizer import show_ModelNet_models
 from utils.save_features import save_features
+import cont_assoc.utils.predict as pred
+import cont_assoc.utils.contrastive as cont
 
+from easydict import EasyDict as edict
+import yaml
 # ----------------------------------------------------------------------------------------------------------------------
 #
 #           Tester Class
 #       \******************/
 #
+
+
+def associate_overlapped_ins(overlaps, overlap_history, label_inst, new_instances, prev_instances):
+    for (new_id, prev_id) in overlaps.items():
+        ins_points = torch.where((label_inst == new_id))
+        if not new_id in new_instances or prev_id not in prev_instances:
+            continue
+        overlap_history[new_id] = prev_id#add tracking id
+        label_inst[ins_points[0]] = prev_id
+        prev_instances[prev_id]['bbox_proj'] = new_instances[new_id]['bbox_proj']
+        # prev_instances[prev_id]['mean'] = new_instances[new_id]['mean']
+        prev_instances[prev_id]['center'] = new_instances[new_id]['center']
+        prev_instances[prev_id]['life'] += 1
+        prev_instances[prev_id]['tracker'].update(new_instances[new_id]['kalman_bbox'], prev_id)
+        prev_instances[prev_id]['kalman_bbox'] = torch.from_numpy(prev_instances[prev_id]['tracker'].get_state()).float()
+        prev_instances[prev_id]['bbox'] = kalman_box_to_eight_point(prev_instances[prev_id]['kalman_bbox'])
+
+        del new_instances[new_id]
+
+    return overlap_history, label_inst, new_instances, prev_instances
+
+def associate_not_overlapped_ins(associations, overlaps, overlap_history, label_inst, new_instances, prev_instances):
+    for prev_id, new_id in associations:
+        if new_id in overlaps:
+            continue
+        
+        ins_points = torch.where((label_inst == new_id))
+        label_inst[ins_points[0]] = prev_id
+        overlap_history[new_id] = prev_id
+        prev_instances[prev_id]['bbox_proj'] = new_instances[new_id]['bbox_proj']
+        # prev_instances[prev_id]['mean'] = new_instances[new_id]['mean']
+        prev_instances[prev_id]['center'] = new_instances[new_id]['center']
+        prev_instances[prev_id]['life'] += 1
+        prev_instances[prev_id]['tracker'].update(new_instances[new_id]['kalman_bbox'], prev_id)
+        prev_instances[prev_id]['kalman_bbox'] = torch.from_numpy(prev_instances[prev_id]['tracker'].get_state()).float()
+        prev_instances[prev_id]['bbox'] = kalman_box_to_eight_point(prev_instances[prev_id]['kalman_bbox'])
+
+        del new_instances[new_id]
+        
+    return overlap_history, label_inst, new_instances, prev_instances
+
+
+
 
 
 def associate_instances(previous_instances, current_instances, overlaps,  pose, association_weights):
@@ -165,11 +212,14 @@ class ModelTester:
     # Initialization methods
     # ------------------------------------------------------------------------------------------------------------------
 
-    def __init__(self, net, chkp_path=None, on_gpu=True):
+    def __init__(self, pls_net, ca_net, pls_chkp_path=None, ca_chkp_path=None, on_gpu=True):
 
         ############
         # Parameters
         ############
+        self.pls_net = pls_net
+        self.ca_net = ca_net
+
         self.instances = {} #store instance ids and mean, cov fors sequantial prediction
         self.next_ins_id = 1 #next ins id for new instance
 
@@ -178,16 +228,23 @@ class ModelTester:
             self.device = torch.device("cuda:0")
         else:
             self.device = torch.device("cpu")
-        net.to(self.device)
+        self.pls_net.to(self.device)
+        self.ca_net.to(self.device)
 
         ##########################
         # Load previous checkpoint
         ##########################
 
-        checkpoint = torch.load(chkp_path)
-        net.load_state_dict(checkpoint['model_state_dict'])
-        self.epoch = checkpoint['epoch']
-        net.eval()
+        pls_checkpoint = torch.load(pls_chkp_path)
+        ca_checkpoint = torch.load(ca_chkp_path)
+
+        self.pls_net.load_state_dict(pls_checkpoint['model_state_dict'])
+        self.ca_net.load_state_dict(ca_checkpoint['state_dict'])       # map_location='cpu'
+
+        self.epoch = pls_checkpoint['epoch']
+        self.pls_net.eval()
+        self.ca_net.eval()
+        self.last_ins_id = 0
         print("Model and training state restored.")
 
         return
@@ -195,297 +252,56 @@ class ModelTester:
     # Test main methods
     # ------------------------------------------------------------------------------------------------------------------
 
-    def cloud_segmentation_test(self, net, test_loader, config, num_votes=100, debug=False):
-        """
-        Test method for cloud segmentation models
-        """
 
-        ############
-        # Initialize
-        ############
+    def get_ins_feat(self, pt_coors, ins_pred, raw_features):
+        #Group points into instances
+        pt_raw_feat = [raw_features]
+        pt_coordinates = [pt_coors]
+        ins_pred = [ins_pred]
 
-        # Choose test smoothing parameter (0 for no smothing, 0.99 for big smoothing)
-        test_smooth = 0.95
-        test_radius_ratio = 0.7
-        softmax = torch.nn.Softmax(1)
+        coordinates, features, n_instances, ins_ids, ins_pred = cont.group_instances(pt_coordinates, pt_raw_feat, ins_pred)
 
-        # Number of classes including ignored labels
-        nc_tot = test_loader.dataset.num_classes
+        #Discard scans without instances
+        features = [x for x in features if len(x)!=0]
+        coordinates = [x for x in coordinates if len(x)!=0]
 
-        # Number of classes predicted by the model
-        nc_model = config.num_classes
+        if len(features)==0:#don't run tracking head if no ins
+            # return [], [], [], ins_pred
+            return [], [], [], ins_pred, {}
 
-        # Initiate global prediction over test clouds
-        self.test_probs = [np.zeros((l.shape[0], nc_model)) for l in test_loader.dataset.input_labels]
+        #Get per-instance feature
+        tracking_input = {'pt_features':features,'pt_coors':coordinates}
 
-        # Test saving path
-        if config.saving:
-            test_path = join('test', config.saving_path.split('/')[-1])
-            if not exists(test_path):
-                makedirs(test_path)
-            if not exists(join(test_path, 'predictions')):
-                makedirs(join(test_path, 'predictions'))
-            if not exists(join(test_path, 'probs')):
-                makedirs(join(test_path, 'probs'))
-            if not exists(join(test_path, 'potentials')):
-                makedirs(join(test_path, 'potentials'))
-        else:
-            test_path = None
+        ins_feat = self.ca_net(tracking_input)
 
-        # If on validation directly compute score
-        if test_loader.dataset.set == 'validation':
-            val_proportions = np.zeros(nc_model, dtype=np.float32)
-            i = 0
-            for label_value in test_loader.dataset.label_values:
-                if label_value not in test_loader.dataset.ignored_labels:
-                    val_proportions[i] = np.sum([np.sum(labels == label_value)
-                                                 for labels in test_loader.dataset.validation_labels])
-                    i += 1
-        else:
-            val_proportions = None
+        if len(coordinates) != len(ins_ids):
+            #scans without instances
+            new_feats, new_coors, new_coors_T = cont.fix_batches(ins_ids, features, coordinates, coordinates_T)
+            tracking_input = {'pt_features':new_feats,'pt_coors':new_coors, 'pt_coors_T':new_coors_T}
 
-        #####################
-        # Network predictions
-        #####################
+        return ins_feat, n_instances, ins_ids, ins_pred, tracking_input
 
-        test_epoch = 0
-        last_min = -0.5
+    def track(self, ins_pred, ins_feat, n_instances, ins_ids, tr_input, poses):
+        #Separate instances of different scans
+        points = tr_input['pt_coors']
+        features = tr_input['pt_features']
+        ins_feat = torch.split(ins_feat, n_instances)
+        poses = [[p] for p in poses]
 
-        t = [time.time()]
-        last_display = time.time()
-        mean_dt = np.zeros(1)
+        #Instance IDs association
+        ins_pred = self.ca_net.AssocModule.associate(ins_pred, ins_feat,
+                                                            points, features,
+                                                            poses, ins_ids)
 
-        # Start test loop
-        while True:
-            print('Initialize workers')
-            for i, batch in enumerate(test_loader):
+        self.last_ins_id = self.ca_net.AssocModule.get_last_id()
+        self.ca_net.AssocModule.update_last_id(self.last_ins_id)
 
-                # New time
-                t = t[-1:]
-                t += [time.time()]
+        return ins_pred
 
-                if i == 0:
-                    print('Done in {:.1f}s'.format(t[1] - t[0]))
 
-                if 'cuda' in self.device.type:
-                    batch.to(self.device)
 
-                # Forward pass
-                outputs = net(batch, config)
 
-                t += [time.time()]
-
-                # Get probs and labels
-                stacked_probs = softmax(outputs).cpu().detach().numpy()
-                s_points = batch.points[0].cpu().numpy()
-                lengths = batch.lengths[0].cpu().numpy()
-                in_inds = batch.input_inds.cpu().numpy()
-                cloud_inds = batch.cloud_inds.cpu().numpy()
-                torch.cuda.synchronize(self.device)
-
-                # Get predictions and labels per instance
-                # ***************************************
-
-                i0 = 0
-                for b_i, length in enumerate(lengths):
-
-                    # Get prediction
-                    points = s_points[i0:i0 + length]
-                    probs = stacked_probs[i0:i0 + length]
-                    inds = in_inds[i0:i0 + length]
-                    c_i = cloud_inds[b_i]
-
-                    if 0 < test_radius_ratio < 1:
-                        mask = np.sum(points ** 2, axis=1) < (test_radius_ratio * config.in_radius) ** 2
-                        inds = inds[mask]
-                        probs = probs[mask]
-
-                    # Update current probs in whole cloud
-                    self.test_probs[c_i][inds] = test_smooth * self.test_probs[c_i][inds] + (1 - test_smooth) * probs
-                    i0 += length
-
-                # Average timing
-                t += [time.time()]
-                if i < 2:
-                    mean_dt = np.array(t[1:]) - np.array(t[:-1])
-                else:
-                    mean_dt = 0.9 * mean_dt + 0.1 * (np.array(t[1:]) - np.array(t[:-1]))
-
-                # Display
-                if (t[-1] - last_display) > 1.0:
-                    last_display = t[-1]
-                    message = 'e{:03d}-i{:04d} => {:.1f}% (timings : {:4.2f} {:4.2f} {:4.2f})'
-                    print(message.format(test_epoch, i,
-                                         100 * i / config.validation_size,
-                                         1000 * (mean_dt[0]),
-                                         1000 * (mean_dt[1]),
-                                         1000 * (mean_dt[2])))
-
-            # Update minimum od potentials
-            new_min = torch.min(test_loader.dataset.min_potentials)
-            print('Test epoch {:d}, end. Min potential = {:.1f}'.format(test_epoch, new_min))
-            #print([np.mean(pots) for pots in test_loader.dataset.potentials])
-
-            # Save predicted cloud
-            if last_min + 1 < new_min:
-
-                # Update last_min
-                last_min += 1
-
-                # Show vote results (On subcloud so it is not the good values here)
-                if test_loader.dataset.set == 'validation':
-                    print('\nConfusion on sub clouds')
-                    Confs = []
-                    for i, file_path in enumerate(test_loader.dataset.files):
-
-                        # Insert false columns for ignored labels
-                        probs = np.array(self.test_probs[i], copy=True)
-                        for l_ind, label_value in enumerate(test_loader.dataset.label_values):
-                            if label_value in test_loader.dataset.ignored_labels:
-                                probs = np.insert(probs, l_ind, 0, axis=1)
-
-                        # Predicted labels
-                        preds = test_loader.dataset.label_values[np.argmax(probs, axis=1)].astype(np.int32)
-
-                        # Targets
-                        targets = test_loader.dataset.input_labels[i]
-
-                        # Confs
-                        Confs += [fast_confusion(targets, preds, test_loader.dataset.label_values)]
-
-                    # Regroup confusions
-                    C = np.sum(np.stack(Confs), axis=0).astype(np.float32)
-
-                    # Remove ignored labels from confusions
-                    for l_ind, label_value in reversed(list(enumerate(test_loader.dataset.label_values))):
-                        if label_value in test_loader.dataset.ignored_labels:
-                            C = np.delete(C, l_ind, axis=0)
-                            C = np.delete(C, l_ind, axis=1)
-
-                    # Rescale with the right number of point per class
-                    C *= np.expand_dims(val_proportions / (np.sum(C, axis=1) + 1e-6), 1)
-
-                    # Compute IoUs
-                    IoUs = IoU_from_confusions(C)
-                    mIoU = np.mean(IoUs)
-                    s = '{:5.2f} | '.format(100 * mIoU)
-                    for IoU in IoUs:
-                        s += '{:5.2f} '.format(100 * IoU)
-                    print(s + '\n')
-
-                # Save real IoU once in a while
-                if int(np.ceil(new_min)) % 10 == 0:
-
-                    # Project predictions
-                    print('\nReproject Vote #{:d}'.format(int(np.floor(new_min))))
-                    t1 = time.time()
-                    proj_probs = []
-                    for i, file_path in enumerate(test_loader.dataset.files):
-
-                        print(i, file_path, test_loader.dataset.test_proj[i].shape, self.test_probs[i].shape)
-
-                        print(test_loader.dataset.test_proj[i].dtype, np.max(test_loader.dataset.test_proj[i]))
-                        print(test_loader.dataset.test_proj[i][:5])
-
-                        # Reproject probs on the evaluations points
-                        probs = self.test_probs[i][test_loader.dataset.test_proj[i], :]
-                        proj_probs += [probs]
-
-                    t2 = time.time()
-                    print('Done in {:.1f} s\n'.format(t2 - t1))
-
-                    # Show vote results
-                    if test_loader.dataset.set == 'validation':
-                        print('Confusion on full clouds')
-                        t1 = time.time()
-                        Confs = []
-                        for i, file_path in enumerate(test_loader.dataset.files):
-
-                            # Insert false columns for ignored labels
-                            for l_ind, label_value in enumerate(test_loader.dataset.label_values):
-                                if label_value in test_loader.dataset.ignored_labels:
-                                    proj_probs[i] = np.insert(proj_probs[i], l_ind, 0, axis=1)
-
-                            # Get the predicted labels
-                            preds = test_loader.dataset.label_values[np.argmax(proj_probs[i], axis=1)].astype(np.int32)
-
-                            # Confusion
-                            targets = test_loader.dataset.validation_labels[i]
-                            Confs += [fast_confusion(targets, preds, test_loader.dataset.label_values)]
-
-                        t2 = time.time()
-                        print('Done in {:.1f} s\n'.format(t2 - t1))
-
-                        # Regroup confusions
-                        C = np.sum(np.stack(Confs), axis=0)
-
-                        # Remove ignored labels from confusions
-                        for l_ind, label_value in reversed(list(enumerate(test_loader.dataset.label_values))):
-                            if label_value in test_loader.dataset.ignored_labels:
-                                C = np.delete(C, l_ind, axis=0)
-                                C = np.delete(C, l_ind, axis=1)
-
-                        IoUs = IoU_from_confusions(C)
-                        mIoU = np.mean(IoUs)
-                        s = '{:5.2f} | '.format(100 * mIoU)
-                        for IoU in IoUs:
-                            s += '{:5.2f} '.format(100 * IoU)
-                        print('-' * len(s))
-                        print(s)
-                        print('-' * len(s) + '\n')
-
-                    # Save predictions
-                    print('Saving clouds')
-                    t1 = time.time()
-                    for i, file_path in enumerate(test_loader.dataset.files):
-
-                        # Get file
-                        points = test_loader.dataset.load_evaluation_points(file_path)
-
-                        # Get the predicted labels
-                        preds = test_loader.dataset.label_values[np.argmax(proj_probs[i], axis=1)].astype(np.int32)
-
-                        # Save plys
-                        cloud_name = file_path.split('/')[-1]
-                        test_name = join(test_path, 'predictions', cloud_name)
-                        write_ply(test_name,
-                                  [points, preds],
-                                  ['x', 'y', 'z', 'preds'])
-                        test_name2 = join(test_path, 'probs', cloud_name)
-                        prob_names = ['_'.join(test_loader.dataset.label_to_names[label].split())
-                                      for label in test_loader.dataset.label_values]
-                        write_ply(test_name2,
-                                  [points, proj_probs[i]],
-                                  ['x', 'y', 'z'] + prob_names)
-
-                        # Save potentials
-                        pot_points = np.array(test_loader.dataset.pot_trees[i].data, copy=False)
-                        pot_name = join(test_path, 'potentials', cloud_name)
-                        pots = test_loader.dataset.potentials[i].numpy().astype(np.float32)
-                        write_ply(pot_name,
-                                  [pot_points.astype(np.float32), pots],
-                                  ['x', 'y', 'z', 'pots'])
-
-                        # Save ascii preds
-                        if test_loader.dataset.set == 'test':
-                            if test_loader.dataset.name.startswith('Semantic3D'):
-                                ascii_name = join(test_path, 'predictions', test_loader.dataset.ascii_files[cloud_name])
-                            else:
-                                ascii_name = join(test_path, 'predictions', cloud_name[:-4] + '.txt')
-                            np.savetxt(ascii_name, preds, fmt='%d')
-
-                    t2 = time.time()
-                    print('Done in {:.1f} s\n'.format(t2 - t1))
-
-            test_epoch += 1
-
-            # Break when reaching number of desired votes
-            if last_min > num_votes:
-                break
-
-        return
-
-    def slam_segmentation_test(self, net, test_loader, config, num_votes=100, debug=True):
+    def panoptic_4d_test(self, test_loader, pls_cfg, ag_cfg, num_votes=100, debug=True):
         """
         Test method for slam segmentation models
         """
@@ -501,367 +317,26 @@ class ModelTester:
 
         # Number of classes including ignored labels
         nc_tot = test_loader.dataset.num_classes
-        nc_model = net.C
-
-        # Test saving path
-        test_path = None
-        report_path = None
-        if config.saving:
-            test_path = join('test', config.saving_path.split('/')[-1])
-            if not exists(test_path):
-                makedirs(test_path)
-            report_path = join(test_path, 'reports')
-            if not exists(report_path):
-                makedirs(report_path)
-
-        if test_loader.dataset.set == 'validation':
-            for folder in ['val_predictions', 'val_probs']:
-                if not exists(join(test_path, folder)):
-                    makedirs(join(test_path, folder))
-        else:
-            for folder in ['predictions', 'probs']:
-                if not exists(join(test_path, folder)):
-                    makedirs(join(test_path, folder))
-
-        # Init validation container
-        all_f_preds = []
-        all_f_labels = []
-        if test_loader.dataset.set == 'validation':
-            for i, seq_frames in enumerate(test_loader.dataset.frames):
-                all_f_preds.append([np.zeros((0,), dtype=np.int32) for _ in seq_frames])
-                all_f_labels.append([np.zeros((0,), dtype=np.int32) for _ in seq_frames])
-
-        #####################
-        # Network predictions
-        #####################
-
-        predictions = []
-        targets = []
-        test_epoch = 0
-
-        t = [time.time()]
-        last_display = time.time()
-        mean_dt = np.zeros(1)
-
-        # Start test loop
-        while True:
-            print('Initialize workers')
-            for i, batch in enumerate(test_loader):
-
-                # New time
-                t = t[-1:]
-                t += [time.time()]
-
-                if i == 0:
-                    print('Done in {:.1f}s'.format(t[1] - t[0]))
-
-                if 'cuda' in self.device.type:
-                    batch.to(self.device)
-                with torch.no_grad():
-                    outputs, centers_output, var_output, embedding = net(batch, config)
-                    #ins_preds = torch.zeros(outputs.shape[0])
-
-                    probs = softmax(outputs).cpu().detach().numpy()
-
-                    for l_ind, label_value in enumerate(test_loader.dataset.label_values):
-                        if label_value in test_loader.dataset.ignored_labels:
-                            probs = np.insert(probs, l_ind, 0, axis=1)
-                    preds = test_loader.dataset.label_values[np.argmax(probs, axis=1)]
-                    preds = torch.from_numpy(preds)
-                    preds.to(outputs.device)
-                    sequence = test_loader.dataset.sequences[batch.frame_inds[0][0]]
-                    if sequence not in self.instances:
-                        self.instances[sequence] = {}
-                    ins_preds = net.ins_pred(preds, centers_output, var_output, embedding, batch.points, batch.times.unsqueeze(1))
-                    #ins_preds, new_instances, ins_id = net.ins_pred_in_time(preds, centers_output, var_output, embedding, self.instances[sequence],
-                    #                                 self.next_ins_id, batch.points)
-
-                    #self.next_ins_id = ins_id#update next available ins id
-                    #for ins_id, instance in new_instances.items(): #add new instances to history
-                    #    self.instances[sequence][ins_id] = instance
-
-                # Get probs and labels
-                stk_probs = softmax(outputs).cpu().detach().numpy()
-                ins_preds = ins_preds.cpu().detach().numpy()
-                lengths = batch.lengths[0].cpu().numpy()
-                f_inds = batch.frame_inds.cpu().numpy()
-                r_inds_list = batch.reproj_inds
-                r_mask_list = batch.reproj_masks
-                labels_list = batch.val_labels
-                torch.cuda.synchronize(self.device)
-
-                t += [time.time()]
-
-                # Get predictions and labels per instance
-                # ***************************************
-
-                i0 = 0
-                for b_i, length in enumerate(lengths):
-
-                    # Get prediction
-                    probs = stk_probs[i0:i0 + length]
-                    ins_probs = ins_preds[i0:i0 + length]
-                    proj_inds = r_inds_list[b_i]
-                    proj_mask = r_mask_list[b_i]
-                    frame_labels = labels_list[b_i]
-                    s_ind = f_inds[b_i, 0]
-                    f_ind = f_inds[b_i, 1]
-
-                    # Project predictions on the frame points
-                    proj_probs = probs[proj_inds]
-                    proj_ins_probs = ins_probs[proj_inds]
-
-                    # Safe check if only one point:
-                    if proj_probs.ndim < 2:
-                        proj_probs = np.expand_dims(proj_probs, 0)
-                        proj_ins_probs = np.expand_dims(proj_ins_probs, 0)
-
-                    # Save probs in a binary file (uint8 format for lighter weight)
-                    seq_name = test_loader.dataset.sequences[s_ind]
-                    if test_loader.dataset.set == 'validation':
-                        folder = 'val_probs'
-                        pred_folder = 'val_predictions'
-                    else:
-                        folder = 'probs'
-                        pred_folder = 'predictions'
-                    filename = '{:s}_{:07d}.npy'.format(seq_name, f_ind)
-                    filepath = join(test_path, folder, filename)
-                    filename_i = '{:s}_{:07d}_i.npy'.format(seq_name, f_ind)
-                    filepath_i = join(test_path, folder, filename_i)
-                    #if exists(filepath):
-                    #    frame_probs_uint8 = np.load(filepath)
-                    #    ins_preds = np.load(filepath_i)
-                    #else:
-                    frame_probs_uint8 = np.zeros((proj_mask.shape[0], nc_model), dtype=np.uint8)
-                    ins_preds = np.zeros((proj_mask.shape[0]))
-
-                    frame_probs = frame_probs_uint8[proj_mask, :].astype(np.float32) / 255
-                    frame_probs = test_smooth * frame_probs + (1 - test_smooth) * proj_probs
-                    frame_probs_uint8[proj_mask, :] = (frame_probs * 255).astype(np.uint8)
-                    ins_preds[proj_mask] = proj_ins_probs
-
-                    #np.save(filepath, frame_probs_uint8)
-                    np.save(filepath_i, ins_preds)
-
-
-
-                    # Save some prediction in ply format for visual
-                    if test_loader.dataset.set == 'validation':
-
-                        # Insert false columns for ignored labels
-                        frame_probs_uint8_bis = frame_probs_uint8.copy()
-                        for l_ind, label_value in enumerate(test_loader.dataset.label_values):
-                            if label_value in test_loader.dataset.ignored_labels:
-                                frame_probs_uint8_bis = np.insert(frame_probs_uint8_bis, l_ind, 0, axis=1)
-
-                        # Predicted labels
-                        frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8_bis,
-                                                                                 axis=1)].astype(np.int32)
-
-                        np.save(filepath, frame_preds)
-                        # Save some of the frame pots
-                        # if f_ind % 20 == 0:
-                        #     seq_path = join(test_loader.dataset.path, 'sequences', test_loader.dataset.sequences[s_ind])
-                        #     velo_file = join(seq_path, 'velodyne', test_loader.dataset.frames[s_ind][f_ind] + '.bin')
-                        #     frame_points = np.fromfile(velo_file, dtype=np.float32)
-                        #     frame_points = frame_points.reshape((-1, 4))
-                        #     predpath = join(test_path, pred_folder, filename[:-4] + '.ply')
-                        #     #pots = test_loader.dataset.f_potentials[s_ind][f_ind]
-                        #     pots = np.zeros((0,))
-                        #     if pots.shape[0] > 0:
-                        #         write_ply(predpath,
-                        #                   [frame_points[:, :3], frame_labels, frame_preds, pots],
-                        #                   ['x', 'y', 'z', 'gt', 'pre', 'pots'])
-                        #     else:
-                        #         write_ply(predpath,
-                        #                   [frame_points[:, :3], frame_labels, frame_preds],
-                        #                   ['x', 'y', 'z', 'gt', 'pre'])
-
-                        #     # Also Save lbl probabilities
-                        #     probpath = join(test_path, folder, filename[:-4] + '_probs.ply')
-                        #     lbl_names = [test_loader.dataset.label_to_names[l]
-                        #                  for l in test_loader.dataset.label_values
-                        #                  if l not in test_loader.dataset.ignored_labels]
-                        #     write_ply(probpath,
-                        #               [frame_points[:, :3], frame_probs_uint8],
-                        #               ['x', 'y', 'z'] + lbl_names)
-
-                        # keep frame preds in memory
-                        all_f_preds[s_ind][f_ind] = frame_preds
-                        all_f_labels[s_ind][f_ind] = frame_labels
-
-                    else:
-
-                        # Insert false columns for ignored labels
-                        for l_ind, label_value in enumerate(test_loader.dataset.label_values):
-                            if label_value in test_loader.dataset.ignored_labels:
-                                frame_probs_uint8 = np.insert(frame_probs_uint8, l_ind, 0, axis=1)
-
-                        # Predicted labels
-                        frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8,
-                                                                                 axis=1)].astype(np.int32)
-                        np.save(filepath, frame_preds)
-                        # if f_inds[b_i, 1] % 100 == 0:
-                        #     # Load points
-                        #     seq_path = join(test_loader.dataset.path, 'sequences', test_loader.dataset.sequences[s_ind])
-                        #     velo_file = join(seq_path, 'velodyne', test_loader.dataset.frames[s_ind][f_ind] + '.bin')
-                        #     frame_points = np.fromfile(velo_file, dtype=np.float32)
-                        #     frame_points = frame_points.reshape((-1, 4))
-                        #     predpath = join(test_path, pred_folder, filename[:-4] + '.ply')
-                        #     #pots = test_loader.dataset.f_potentials[s_ind][f_ind]
-                        #     pots = np.zeros((0,))
-                        #     if pots.shape[0] > 0:
-                        #         write_ply(predpath,
-                        #                   [frame_points[:, :3], frame_preds, pots],
-                        #                   ['x', 'y', 'z', 'pre', 'pots'])
-                        #     else:
-                        #         write_ply(predpath,
-                        #                   [frame_points[:, :3], frame_preds],
-                        #                   ['x', 'y', 'z', 'pre'])
-
-                    # Stack all prediction for this epoch
-                    i0 += length
-
-                # Average timing
-                t += [time.time()]
-                mean_dt = 0.95 * mean_dt + 0.05 * (np.array(t[1:]) - np.array(t[:-1]))
-
-                # Display
-                if (t[-1] - last_display) > 1.0:
-                    last_display = t[-1]
-                    message = 'e{:03d}-i{:04d} => {:.1f}% (timings : {:4.2f} {:4.2f} {:4.2f}) / pots {:d} => {:.1f}%'
-                    min_pot = int(torch.floor(torch.min(test_loader.dataset.potentials)))
-                    pot_num = torch.sum(test_loader.dataset.potentials > min_pot + 0.5).type(torch.int32).item()
-                    current_num = pot_num + (i + 1 - config.validation_size) * config.val_batch_num
-                    print(message.format(test_epoch, i,
-                                         100 * i / config.validation_size,
-                                         1000 * (mean_dt[0]),
-                                         1000 * (mean_dt[1]),
-                                         1000 * (mean_dt[2]),
-                                         min_pot,
-                                         100.0 * current_num / len(test_loader.dataset.potentials)))
-
-
-            # Update minimum od potentials
-            new_min = torch.min(test_loader.dataset.potentials)
-            print('Test epoch {:d}, end. Min potential = {:.1f}'.format(test_epoch, new_min))
-
-            if last_min + 1 < new_min:
-
-                # Update last_min
-                last_min += 1
-
-                if test_loader.dataset.set == 'validation' and last_min % 1 == 0:
-
-                    #####################################
-                    # Results on the whole validation set
-                    #####################################
-
-                    # Confusions for our subparts of validation set
-                    Confs = np.zeros((len(predictions), nc_tot, nc_tot), dtype=np.int32)
-                    for i, (preds, truth) in enumerate(zip(predictions, targets)):
-
-                        # Confusions
-                        Confs[i, :, :] = fast_confusion(truth, preds, test_loader.dataset.label_values).astype(np.int32)
-
-
-                    # Show vote results
-                    print('\nCompute confusion')
-
-                    val_preds = []
-                    val_labels = []
-                    t1 = time.time()
-                    for i, seq_frames in enumerate(test_loader.dataset.frames):
-                        val_preds += [np.hstack(all_f_preds[i])]
-                        val_labels += [np.hstack(all_f_labels[i])]
-                    val_preds = np.hstack(val_preds)
-                    val_labels = np.hstack(val_labels)
-                    t2 = time.time()
-                    C_tot = fast_confusion(val_labels, val_preds, test_loader.dataset.label_values)
-                    t3 = time.time()
-                    print(' Stacking time : {:.1f}s'.format(t2 - t1))
-                    print('Confusion time : {:.1f}s'.format(t3 - t2))
-
-                    s1 = '\n'
-                    for cc in C_tot:
-                        for c in cc:
-                            s1 += '{:7.0f} '.format(c)
-                        s1 += '\n'
-                    if debug:
-                        print(s1)
-
-                    # Remove ignored labels from confusions
-                    for l_ind, label_value in reversed(list(enumerate(test_loader.dataset.label_values))):
-                        if label_value in test_loader.dataset.ignored_labels:
-                            C_tot = np.delete(C_tot, l_ind, axis=0)
-                            C_tot = np.delete(C_tot, l_ind, axis=1)
-
-                    # Objects IoU
-                    val_IoUs = IoU_from_confusions(C_tot)
-
-                    # Compute IoUs
-                    mIoU = np.mean(val_IoUs)
-                    s2 = '{:5.2f} | '.format(100 * mIoU)
-                    for IoU in val_IoUs:
-                        s2 += '{:5.2f} '.format(100 * IoU)
-                    print(s2 + '\n')
-
-                    # Save a report
-                    report_file = join(report_path, 'report_{:04d}.txt'.format(int(np.floor(last_min))))
-                    str = 'Report of the confusion and metrics\n'
-                    str += '***********************************\n\n\n'
-                    str += 'Confusion matrix:\n\n'
-                    str += s1
-                    str += '\nIoU values:\n\n'
-                    str += s2
-                    str += '\n\n'
-                    with open(report_file, 'w') as f:
-                        f.write(str)
-
-            test_epoch += 1
-
-            # Break when reaching number of desired votes
-            if last_min > num_votes:
-                break
-
-        return
-
-    def panoptic_4d_test(self, net, test_loader, config, num_votes=100, debug=True):
-        """
-        Test method for slam segmentation models
-        """
-
-        ############
-        # Initialize
-        ############
-
-        # Choose validation smoothing parameter (0 for no smothing, 0.99 for big smoothing)
-        test_smooth = 0.5
-        last_min = -0.5
-        softmax = torch.nn.Softmax(1)
-
-        # Number of classes including ignored labels
-        nc_tot = test_loader.dataset.num_classes
-        nc_model = net.C
+        nc_model = self.pls_net.C
         # Test saving path
         test_path = None
         report_path = None
 
-        if config.dataset_task == '4d_panoptic':
+        if pls_cfg.dataset_task == '4d_panoptic':
 
             #assoc_saving = [asc_type for idx, asc_type in enumerate(config.association_types) if config.association_weights[idx] > 0]
             #assoc_saving.append(str(config.n_test_frames))
             #assoc_saving = '_'.join(assoc_saving)
-            assoc_saving = config.sampling
-            config.assoc_saving = config.sampling+'_'+ config.decay_sampling
-            if hasattr(config, 'stride'):
-                config.assoc_saving = config.sampling + '_' + config.decay_sampling+ '_str' + str(config.stride) +'_'
-            if hasattr(config, 'big_gpu') and config.big_gpu:
-                config.assoc_saving = config.assoc_saving + 'bigpug_'
+            assoc_saving = pls_cfg.sampling
+            pls_cfg.assoc_saving = pls_cfg.sampling+'_'+ pls_cfg.decay_sampling
+            if hasattr(pls_cfg, 'stride'):
+                pls_cfg.assoc_saving = pls_cfg.sampling + '_' + pls_cfg.decay_sampling+ '_str' + str(pls_cfg.stride) +'_'
+            if hasattr(pls_cfg, 'big_gpu') and pls_cfg.big_gpu:
+                pls_cfg.assoc_saving = pls_cfg.assoc_saving + 'bigpug_'
 
 
-        if config.saving:
-            test_path = join('/data2/zixuan.chen/data/','test', config.saving_path.split('/')[-1]+ '_'+config.assoc_saving+str(config.n_test_frames))
+        if pls_cfg.saving:
+            test_path = join('/data2/zixuan.chen/data/', 'test_plsca', pls_cfg.saving_path.split('/')[-1]+ '_'+pls_cfg.assoc_saving+str(pls_cfg.n_test_frames))
             if not exists(test_path):
                 makedirs(test_path)
             report_path = join(test_path, 'reports')
@@ -877,7 +352,7 @@ class ModelTester:
             for folder in ['train_predictions', 'train_probs']:
                 if not exists(join(test_path, folder)):
                     makedirs(join(test_path, folder))
-        else:
+        else: # test
             for folder in ['test_predictions', 'test_probs']:
                 if not exists(join(test_path, folder)):
                     makedirs(join(test_path, folder))
@@ -891,7 +366,7 @@ class ModelTester:
                 all_f_labels.append([np.zeros((0,), dtype=np.int32) for _ in seq_frames])
 
         #####################
-        # Network predictions
+        # 4Dplsca Network predictions
         #####################
 
         predictions = []
@@ -916,12 +391,12 @@ class ModelTester:
                     print('Done in {:.1f}s'.format(t[1] - t[0]))
 
                 flag = True
-                if config.n_test_frames > 1:
+                if pls_cfg.n_test_frames > 1:
                     lengths = batch.lengths[0].cpu().numpy()
                     for b_i, length in enumerate(lengths):
                         f_inds = batch.frame_inds.cpu().numpy()
                         f_ind = f_inds[b_i, 1]
-                        if f_ind % config.n_test_frames != config.n_test_frames-1:
+                        if f_ind % pls_cfg.n_test_frames != pls_cfg.n_test_frames-1:
                              flag = False
 
                 if processed == test_loader.dataset.all_inds.shape[0]:
@@ -940,7 +415,7 @@ class ModelTester:
 
                 with torch.no_grad():
                     # f_ind = 1
-                    outputs, centers_output, var_output, embedding = net(batch, config)   # # (153815, 19); (N, 1); (N, 260 = 256+4); (N, 256)
+                    outputs, centers_output, var_output, embedding = self.pls_net(batch, pls_cfg)   # # (153815, 19); (N, 1); (N, 260 = 256+4); (N, 256)
                     #ins_preds = torch.zeros(outputs.shape[0])
 
                     probs = softmax(outputs).cpu().detach().numpy()                        # (153815, 19)
@@ -956,7 +431,7 @@ class ModelTester:
                     if sequence not in self.instances:
                         self.instances[sequence] = {}
                     #ins_preds = net.ins_pred(preds, centers_output, var_output, embedding, batch.points)
-                    ins_preds, new_instances, ins_id = net.ins_pred_in_time(config, preds, centers_output, var_output, embedding, self.instances[sequence],
+                    ins_preds, new_instances, ins_id = self.pls_net.ins_pred_in_time(pls_cfg, preds, centers_output, var_output, embedding, self.instances[sequence],
                                                      self.next_ins_id, batch.points, batch.times.unsqueeze(1), pose)
 
                     self.next_ins_id = ins_id#update next available ins id
@@ -1027,8 +502,8 @@ class ModelTester:
                         folder = 'train_probs'
                         pred_folder = 'train_predictions'
                     else:
-                        folder = 'probs'
-                        pred_folder = 'predictions'
+                        folder = 'test_probs'
+                        pred_folder = 'test_predictions'
 
                     filename = '{:s}_{:07d}.npy'.format(seq_name, f_ind)
                     filepath = join(test_path, folder, filename)
@@ -1090,7 +565,7 @@ class ModelTester:
                     # filepath_f = join(test_path, folder, filename_f)
 
                     #np.save(filepath_f, ins_features)
-######################################################################################################
+
                     #load current frame
                     ins_path = filepath_i
                     # fet_path = os.path.join(prediction_path, '{0:02d}_{1:07d}_f.npy'.format(sequence, idx))
@@ -1153,12 +628,12 @@ class ModelTester:
                     new_instances_prev = {}
                     overlaps = {}
                     overlap_scores = {}
-######################################################################################################
+
 
                     # if multi frame prediction
                     times = []
                     times.append(time.time()) # loading time
-                    if config.n_test_frames > 1 and f_ind > 0:
+                    if pls_cfg.n_test_frames > 1 and f_ind > 0:
                         for fi in range(len(f_inc_r_inds_list[b_i])):
                             proj_inds = f_inc_r_inds_list[b_i][fi]                     # 119160
                             proj_mask = f_inc_r_mask_list[b_i][fi]                     # 123389
@@ -1280,45 +755,18 @@ class ModelTester:
 
                     associations = []
                     times.append(time.time()) # assoc time from prev
+
                     # if there was instances from previous frames
                     if len(prev_instances.keys()) > 0:
                         #firstly associate overlapping instances
-                        for (new_id, prev_id) in overlaps.items():
-                            ins_points = torch.where((label_inst == new_id))
-                            if not new_id in new_instances or prev_id not in prev_instances:
-                                continue
-                            overlap_history[new_id] = prev_id#add tracking id
-                            label_inst[ins_points[0]] = prev_id
-                            prev_instances[prev_id]['bbox_proj'] = new_instances[new_id]['bbox_proj']
-                            # prev_instances[prev_id]['mean'] = new_instances[new_id]['mean']
-                            prev_instances[prev_id]['center'] = new_instances[new_id]['center']
+                        overlap_history, label_inst, new_instances, prev_instances = associate_overlapped_ins(overlaps, overlap_history, 
+                                                                                                label_inst, new_instances, prev_instances)
+                        # associate instances which are not overlapped
+                        overlap_history, label_inst, new_instances, prev_instances = associate_not_overlapped_ins(associations, overlaps, 
+                                                                                            overlap_history, label_inst, new_instances, prev_instances)
 
-                            prev_instances[prev_id]['life'] += 1
-                            prev_instances[prev_id]['tracker'].update(new_instances[new_id]['kalman_bbox'], prev_id)
-                            prev_instances[prev_id]['kalman_bbox'] = torch.from_numpy(prev_instances[prev_id]['tracker'].get_state()).float()
-                            prev_instances[prev_id]['bbox'] = kalman_box_to_eight_point(prev_instances[prev_id]['kalman_bbox'])
-
-                            del new_instances[new_id]
-
-                        for prev_id, new_id in associations:
-                            if new_id in overlaps:
-                                continue
-                            # associate  instances which are not overlapped
-                            ins_points = torch.where((label_inst == new_id))
-                            label_inst[ins_points[0]] = prev_id
-                            overlap_history[new_id] = prev_id
-                            prev_instances[prev_id]['bbox_proj'] = new_instances[new_id]['bbox_proj']
-                            # prev_instances[prev_id]['mean'] = new_instances[new_id]['mean']
-                            prev_instances[prev_id]['center'] = new_instances[new_id]['center']
-
-                            prev_instances[prev_id]['life'] += 1
-                            prev_instances[prev_id]['tracker'].update(new_instances[new_id]['kalman_bbox'], prev_id)
-                            prev_instances[prev_id]['kalman_bbox'] = torch.from_numpy(prev_instances[prev_id]['tracker'].get_state()).float()
-                            prev_instances[prev_id]['bbox'] = kalman_box_to_eight_point(prev_instances[prev_id]['kalman_bbox'])
-
-                            del new_instances[new_id]
-
-                    for ins_id, instance in new_instances.items():  # add new instances to history     # [1, 2, 4, 5, 6 ,7, 11], [17, 18, 23, 24, 28]
+                    # add new instances to history
+                    for ins_id, instance in new_instances.items():       # [1, 2, 4, 5, 6 ,7, 11], [17, 18, 23, 24, 28]
                         ids = np.where(label_inst == ins_id)
                         if ids[0].shape[0] < 50:                   # drop ins 11
                             continue
@@ -1347,27 +795,35 @@ class ModelTester:
                         if valid_ind.shape[0] < 25:
                             ins_preds[valid_ind] = 0              
                                                                             # [0, 21, 22, 24, 25, 26, 27, 31], [0, 21, 22, 26, 37, 38, 43, 44, 48]
-                    # for sem_id in np.unique(label_sem_class):                  # [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] without 8
-                    #     if sem_id < 1 or sem_id > 8:                           # sem_id [0, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-                    #         valid_ind = np.argwhere((label_sem_class == sem_id) & (ins_preds == 0))[:, 0]    # (4194,) semantic class = 0 and ins_id = 0
-                    #         ins_preds[valid_ind] = sem_id                      # label instance which doesn't belong to things  
-
-
-
 ###################################################################################################
                     frame_points = np.fromfile(velo_file, dtype=np.float32)                         # 123433
                     frame_points = frame_points.reshape((-1, 4))                                    # 123433
                     proj_mask = r_mask_list[b_i]
                     frame_preds = label_sem_class
-#############################################################################################
-                    if config.SAVE_TRAIN_FEATURES:
-                        save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, proj_mask, ins_preds, frame_preds, save_preds = False)
-                    elif config.SAVE_VAL_PRED:
-                        save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, proj_mask, ins_preds, frame_preds, save_preds = True)
 
+
+                    frame_preds = frame_preds.astype(np.int64)
+                    ins_preds = ins_preds.astype(np.int32)
+                    sem_pred = pred.majority_voting(frame_preds, ins_preds)
+
+                    #############################
+                    raw_features = pt_features
+                    pt_coors = frame_points[:, :3]
+
+                    ins_feat, n_ins, ins_ids, ins_pred, tracking_input = self.get_ins_feat(pt_coors, ins_preds, raw_features)
+
+                    if len(ins_feat)!=0:
+                        ins_pred = self.track(ins_pred, ins_feat, n_ins, ins_ids, tracking_input, pose)
+
+                    # return sem_pred, ins_pred
+
+                    # if pls_cfg.SAVE_TRAIN_FEATURES:
+                    #     save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, proj_mask, ins_preds, frame_preds, save_preds = False)
+                    # elif pls_cfg.SAVE_VAL_PRED:
+                    #     save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, proj_mask, ins_preds, frame_preds, save_preds = True)
 
 ##############################################################################################
-
+                    # evaluation step
 
                     # # Save some prediction in ply format for visual
                     if test_loader.dataset.set == 'validation':
@@ -1448,6 +904,16 @@ class ModelTester:
                     i0 += length
 
 
+             
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1463,9 +929,9 @@ class ModelTester:
                     message = 'e{:03d}-i{:04d} => {:.1f}% (timings : {:4.2f} {:4.2f} {:4.2f}) / pots {:d} => {:.1f}%'
                     min_pot = int(torch.floor(torch.min(test_loader.dataset.potentials)))
                     pot_num = torch.sum(test_loader.dataset.potentials > min_pot + 0.5).type(torch.int32).item()
-                    current_num = pot_num + (i + 1 - config.validation_size) * config.val_batch_num
+                    current_num = pot_num + (i + 1 - pls_cfg.validation_size) * pls_cfg.val_batch_num
                     print(message.format(test_epoch, i,
-                                         100 * i / config.validation_size,
+                                         100 * i / pls_cfg.validation_size,
                                          1000 * (mean_dt[0]),
                                          1000 * (mean_dt[1]),
                                          1000 * (mean_dt[2]),
@@ -1551,7 +1017,7 @@ class ModelTester:
 
             test_epoch += 1
 
-            # Break when reaching number of desired votes
+            # Break when reaching number of desired votes     ??????????????????
             if last_min > num_votes:
                 break
 

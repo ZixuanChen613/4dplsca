@@ -3,7 +3,8 @@
 *.o
 *.out
 results/
-test.log
+*.log
 test/
+test.bak/
 experiments/
 

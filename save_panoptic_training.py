@@ -104,7 +104,7 @@ if __name__ == '__main__':
     chkp_idx = None
 
     # Choose to save prediction features on validation or train split
-    on_val = True    # True： validation; False: training
+    on_val = False    # True： validation; False: training
 
     # Deal with 'last_XXXXXX' choices
     chosen_log = model_choice(chosen_log)

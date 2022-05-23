@@ -11,31 +11,35 @@
 #
 # ----------------------------------------------------------------------------------------------------------------------
 #
-#      Hugues THOMAS - 06/03/2020
+#      Zixuan Chen - 2022
 #
-
 
 # ----------------------------------------------------------------------------------------------------------------------
 #
 #           Imports and global variables
 #       \**********************************/
 #
+
+# Common libs
 # import pdb
 # pdb.set_trace()
-# Common libs
 import signal
 import os
 import numpy as np
 import sys
 import torch
-
+from easydict import EasyDict as edict
 # Dataset
 from datasets.SemanticKitti import *
 from torch.utils.data import DataLoader
 
 from utils.config import Config
-from utils.tester_save_features import ModelTester
+from utils.plsca_tester import ModelTester
 from models.architectures import KPCNN, KPFCNN
+
+import cont_assoc.models.contrastive_models as ca_models
+import cont_assoc.models.contrastive_models as c_models
+
 
 np.random.seed(0)
 torch.manual_seed(0)
@@ -103,8 +107,8 @@ if __name__ == '__main__':
     # Choose the index of the checkpoint to load OR None if you want to load the current checkpoint
     chkp_idx = None
 
-    # Choose to save prediction features on validation or train split
-    on_val = True    # True： validation; False: training
+    # Choose to test on validation or test split
+    on_val = False
 
     # Deal with 'last_XXXXXX' choices
     chosen_log = model_choice(chosen_log)
@@ -134,8 +138,8 @@ if __name__ == '__main__':
     chosen_chkp = os.path.join(chosen_log, 'checkpoints', chosen_chkp)
 
     # Initialize configuration class
-    config = Config()
-    config.load(chosen_log)
+    pls_cfg = Config()
+    pls_cfg.load(chosen_log)
 
 
     ##################################
@@ -144,20 +148,20 @@ if __name__ == '__main__':
 
     # Change parameters for the test here. For example, you can stop augmenting the input data.
 
-    config.global_fet = False
-    config.validation_size = 200
-    config.input_threads = 0 #16
-    config.n_frames = 4   
-    config.n_test_frames = 4 #it should be smaller than config.n_frames
-    if config.n_frames < config.n_test_frames:
-        config.n_frames = config.n_test_frames
-    config.big_gpu = True
-    config.dataset_task = '4d_panoptic'
-    #config.sampling = 'density'
-    config.sampling = 'importance'
-    config.decay_sampling = 'None'
-    config.stride = 1
-    config.first_subsampling_dl = 0.061
+    pls_cfg.global_fet = False
+    pls_cfg.validation_size = 200
+    pls_cfg.input_threads = 16
+    pls_cfg.n_frames = 4
+    pls_cfg.n_test_frames = 4 #it should be smaller than pls_cfg.n_frames
+    if pls_cfg.n_frames < pls_cfg.n_test_frames:
+        pls_cfg.n_frames = pls_cfg.n_test_frames
+    pls_cfg.big_gpu = True
+    pls_cfg.dataset_task = '4d_panoptic'
+    #pls_cfg.sampling = 'density'
+    pls_cfg.sampling = 'importance'
+    pls_cfg.decay_sampling = 'None'
+    pls_cfg.stride = 1
+    pls_cfg.first_subsampling_dl = 0.061
 
 
     ##############
@@ -169,36 +173,32 @@ if __name__ == '__main__':
     print('****************')
 
     if on_val:
-        set = 'save_pred_validation'
-        config.SAVE_FEATURES = False
-        config.SAVE_VAL_PRED = True
+        set = 'validation'
     else:
-        set = 'save_feat_training'
-        config.SAVE_FEATURES = True
-        config.SAVE_VAL_PRED = False
+        set = 'test'
 
     # Initiate dataset
-    if config.dataset.startswith('ModelNet40'):
-        test_dataset = ModelNet40Dataset(config, train=False)
+    if pls_cfg.dataset.startswith('ModelNet40'):
+        test_dataset = ModelNet40Dataset(pls_cfg, train=False)
         test_sampler = ModelNet40Sampler(test_dataset)
         collate_fn = ModelNet40Collate
-    elif config.dataset == 'S3DIS':
-        test_dataset = S3DISDataset(config, set='validation', use_potentials=True)
+    elif pls_cfg.dataset == 'S3DIS':
+        test_dataset = S3DISDataset(pls_cfg, set='validation', use_potentials=True)
         test_sampler = S3DISSampler(test_dataset)
         collate_fn = S3DISCollate
-    elif config.dataset == 'SemanticKitti':
-        test_dataset = SemanticKittiDataset(config, set=set, balance_classes=False, seqential_batch=True)
+    elif pls_cfg.dataset == 'SemanticKitti':
+        test_dataset = SemanticKittiDataset(pls_cfg, set=set, balance_classes=False, seqential_batch=True)
         test_sampler = SemanticKittiSampler(test_dataset)
         collate_fn = SemanticKittiCollate
     else:
-        raise ValueError('Unsupported dataset : ' + config.dataset)
+        raise ValueError('Unsupported dataset : ' + pls_cfg.dataset)
 
     # Data loader
     test_loader = DataLoader(test_dataset,
                              batch_size=1,
                              sampler=test_sampler,
                              collate_fn=collate_fn,
-                             num_workers=0,     #config.input_threads, 0
+                             num_workers=0,#pls_cfg.input_threads,
                              pin_memory=True)
 
     # Calibrate samplers
@@ -209,30 +209,42 @@ if __name__ == '__main__':
 
     # Define network model
     t1 = time.time()
-    if config.dataset_task == 'classification':
-        net = KPCNN(config)
-    elif config.dataset_task in ['cloud_segmentation', 'slam_segmentation']:
-        net = KPFCNN(config, test_dataset.label_values, test_dataset.ignored_labels)
+    if pls_cfg.dataset_task == 'classification':
+        pls_net = KPCNN(pls_cfg)
+    elif pls_cfg.dataset_task in ['cloud_segmentation', 'slam_segmentation']:
+        pls_net = KPFCNN(pls_cfg, test_dataset.label_values, test_dataset.ignored_labels)
     else:
-        raise ValueError('Unsupported dataset_task for testing: ' + config.dataset_task)
+        raise ValueError('Unsupported dataset_task for testing: ' + pls_cfg.dataset_task)
+
+
+    ## aggregation config
+    config_ag = 'config/contrastive_instances.yaml'            ##############
+    ag_cfg = edict(yaml.safe_load(open(config_ag)))
+
+    ca_net = c_models.ContrastiveTracking(ag_cfg)
+    ca_chkp_path = 'experiments/last.ckpt'
 
     # Define a visualizer class
-    tester = ModelTester(net, chkp_path=chosen_chkp)
+    tester = ModelTester(pls_net, ca_net, pls_chkp_path=chosen_chkp, ca_chkp_path=ca_chkp_path)              ############ need to modify
     print('Done in {:.1f}s\n'.format(time.time() - t1))
 
     print('\nStart test')
     print('**********\n')
     
-    config.dataset_task = '4d_panoptic'
+    pls_cfg.dataset_task = '4d_panoptic'
+
+    tester.panoptic_4d_test(test_loader, pls_cfg, ag_cfg)
+
     
-    # Training
-    if config.dataset_task == 'classification':
-        a = 1/0
-    elif config.dataset_task == 'cloud_segmentation':
-                tester.cloud_segmentation_test(net, test_loader, config)
-    elif config.dataset_task == 'slam_segmentation':
-        tester.slam_segmentation_test(net, test_loader, config)
-    elif config.dataset_task == '4d_panoptic':
-        tester.panoptic_4d_test(net, test_loader, config)
-    else:
-        raise ValueError('Unsupported dataset_task for testing: ' + config.dataset_task)
+    
+    # # Training
+    # if config.dataset_task == 'classification':
+    #     a = 1/0
+    # elif config.dataset_task == 'cloud_segmentation':
+    #             tester.cloud_segmentation_test(net, test_loader, config)
+    # elif config.dataset_task == 'slam_segmentation':
+    #     tester.slam_segmentation_test(net, test_loader, config)
+    # elif config.dataset_task == '4d_panoptic':
+    #     tester.panoptic_4d_test(net, test_loader, config)
+    # else:
+    #     raise ValueError('Unsupported dataset_task for testing: ' + config.dataset_task)

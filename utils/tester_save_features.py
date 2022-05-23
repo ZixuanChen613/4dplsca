@@ -190,7 +190,7 @@ class ModelTester:
 
                 with torch.no_grad():
 
-                    outputs, centers_output, var_output, embedding = net(batch, config)    # (83365, 19); (N, 1); (N, 260); (N, 256)
+                    outputs, centers_output, var_output, embedding = net(batch, config)    # (83365, 19); (N, 1); (N, 260 = 256+4); (N, 256)
                     #ins_preds = torch.zeros(outputs.shape[0])
 
                     probs = softmax(outputs).cpu().detach().numpy()                        # (83365, 19)
@@ -247,7 +247,6 @@ class ModelTester:
 
                     # Get prediction
                     pt_features = embedding[i0:i0 + length]             # (83365, 256)
-
                     probs = stk_probs[i0:i0 + length]                   # (83365, 19)
                     c_probs = centers_output[i0:i0 + length]            # (83365)
                     ins_probs = ins_preds[i0:i0 + length]               # (83365)
@@ -261,7 +260,7 @@ class ModelTester:
                     proj_probs = probs[proj_inds]                       # 119195
                     proj_c_probs = c_probs[proj_inds]                   # 119195
                     proj_ins_probs = ins_probs[proj_inds]               # 119195
-                    proj_pt_features = pt_features[proj_inds]
+                    proj_pt_features = pt_features[proj_inds]           # 119195
 
                     # Safe check if only one point:
                     if proj_probs.ndim < 2:
@@ -283,6 +282,7 @@ class ModelTester:
                     filename_c = '{:s}_{:07d}_c.npy'.format(seq_name, f_ind)
                     filepath_i = join(test_path, folder, filename_i)
                     filepath_c = join(test_path, folder, filename_c)
+
                     #if exists(filepath):
                     #    frame_probs_uint8 = np.load(filepath)
                     #    ins_preds = np.load(filepath_i)
@@ -290,7 +290,7 @@ class ModelTester:
 
                     frame_probs_uint8 = np.zeros((proj_mask.shape[0], nc_model), dtype=np.uint8)    # (123389, 19)
                     frame_c_probs = np.zeros((proj_mask.shape[0], 1))                               # (123389, 1)
-                    ins_preds = np.zeros((proj_mask.shape[0]), dtype=np.uint8)                        # (123389,)
+                    ins_preds = np.zeros((proj_mask.shape[0]), dtype=np.uint8)                      # (123389,)
                     pt_features = np.zeros((proj_mask.shape[0], 256))                               # 123389
 
                     frame_probs = frame_probs_uint8[proj_mask, :].astype(np.float32) / 255          # proj_mask: true or false
@@ -327,8 +327,8 @@ class ModelTester:
                     
                     #np.save(filepath, frame_probs_uint8)
                     #print ('Saving {}'.format(filepath_i))
-                    # np.save(filepath_i, ins_preds)
-                    # np.save(filepath_c, frame_c_probs)
+                    np.save(filepath_i, ins_preds)
+                    np.save(filepath_c, frame_c_probs)
 
                     ins_features = {}                                                               # ins_features.keys()  [1,2,3,4,5,6,7,9,10]
                     for ins_id in np.unique(ins_preds):

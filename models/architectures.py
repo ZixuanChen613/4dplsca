@@ -307,7 +307,7 @@ class KPFCNN(nn.Module):
         ############
         # Parameters
         ############
-
+        
         # Current radius of convolution and feature dimension
         layer = 0
         r = config.first_subsampling_dl * config.conv_radius  # 0.3 = 0.12 * 2.5

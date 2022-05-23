@@ -20,9 +20,10 @@
 #           Imports and global variables
 #       \**********************************/
 #
+
+# Common libs
 # import pdb
 # pdb.set_trace()
-# Common libs
 import signal
 import os
 import numpy as np
@@ -34,7 +35,7 @@ from datasets.SemanticKitti import *
 from torch.utils.data import DataLoader
 
 from utils.config import Config
-from utils.tester_save_features import ModelTester
+from utils.tester import ModelTester
 from models.architectures import KPCNN, KPFCNN
 
 np.random.seed(0)
@@ -103,8 +104,8 @@ if __name__ == '__main__':
     # Choose the index of the checkpoint to load OR None if you want to load the current checkpoint
     chkp_idx = None
 
-    # Choose to save prediction features on validation or train split
-    on_val = True    # True： validation; False: training
+    # Choose to test on validation or training split
+    on_val = True
 
     # Deal with 'last_XXXXXX' choices
     chosen_log = model_choice(chosen_log)
@@ -146,8 +147,8 @@ if __name__ == '__main__':
 
     config.global_fet = False
     config.validation_size = 200
-    config.input_threads = 0 #16
-    config.n_frames = 4   
+    config.input_threads = 16
+    config.n_frames = 4
     config.n_test_frames = 4 #it should be smaller than config.n_frames
     if config.n_frames < config.n_test_frames:
         config.n_frames = config.n_test_frames
@@ -170,11 +171,11 @@ if __name__ == '__main__':
 
     if on_val:
         set = 'save_pred_validation'
-        config.SAVE_FEATURES = False
+        config.SAVE_TRAIN_FEATURES = False
         config.SAVE_VAL_PRED = True
     else:
-        set = 'save_feat_training'
-        config.SAVE_FEATURES = True
+        set = 'save_pred_training'
+        config.SAVE_TRAIN_FEATURES = True
         config.SAVE_VAL_PRED = False
 
     # Initiate dataset
@@ -198,7 +199,7 @@ if __name__ == '__main__':
                              batch_size=1,
                              sampler=test_sampler,
                              collate_fn=collate_fn,
-                             num_workers=0,     #config.input_threads, 0
+                             num_workers=0,#config.input_threads,
                              pin_memory=True)
 
     # Calibrate samplers

@@ -972,6 +972,7 @@ class ModelTester:
                     for ins_id in dont_track_ids:
                         del self.instances[sequence][ins_id]
 
+                helper(batch, embedding, outputs, ins_preds, centers_output)
                 # Get probs and labels
                 embedding = embedding.cpu().detach().numpy()             # 153815
                 stk_probs = softmax(outputs).cpu().detach().numpy()      # 153815,19
@@ -1034,12 +1035,9 @@ class ModelTester:
                     filepath = join(test_path, folder, filename)
                     filename_i = '{:s}_{:07d}_i.npy'.format(seq_name, f_ind)
                     filename_c = '{:s}_{:07d}_c.npy'.format(seq_name, f_ind)
-                    # filename_e = '{:s}_{:07d}_e.npy'.format(seq_name, f_ind)
-                    # filename_m = '{:s}_{:07d}_m.npy'.format(seq_name, f_ind)
                     filepath_i = join(test_path, folder, filename_i)
                     filepath_c = join(test_path, folder, filename_c)
-                    # filepath_e = join(test_path, folder, filename_e)
-                    # filepath_m = join(test_path, folder, filename_m)
+                    
 
                     frame_probs_uint8 = np.zeros((proj_mask.shape[0], nc_model), dtype=np.uint8)  # 123433
                     frame_c_probs = np.zeros((proj_mask.shape[0], 1))
@@ -1077,19 +1075,9 @@ class ModelTester:
                     #print ('Saving {}'.format(filepath_i))
                     np.save(filepath_i, ins_preds)                  # 123433
                     np.save(filepath_c, frame_c_probs)              # 123433
-                    # np.save(filepath_e, pt_features)                # 123433
-                    # np.save(filepath_m, proj_mask)
+       
 
-                    # ins_features = {}
-                    # for ins_id in np.unique(ins_preds):
-                    #     if int(ins_id) in self.instances[sequence]:
-                    #         pt_idx = np.where(ins_preds==ins_id)[0]
-                    #         ins_features[int(ins_id)] = torch.tensor(pt_features[pt_idx]).type(torch.float32)
-
-                    # filename_f = '{:s}_{:07d}_f.npy'.format(seq_name, f_ind)
-                    # filepath_f = join(test_path, folder, filename_f)
-
-                    #np.save(filepath_f, ins_features)
+                    
 ######################################################################################################
                     #load current frame
                     ins_path = filepath_i
@@ -1109,13 +1097,7 @@ class ModelTester:
                     features = {}
                     for ins_id in ins_ids:
                         features[ins_id] = torch.from_numpy(np.zeros((1,1)))  
-                                               #  ????????????????????????????
-                    # if os.path.exists(fet_path):
-                    #     features = np.load(fet_path, allow_pickle=True).tolist()
-                    # else:
-                    #     features = {}
-                    #     for ins_id in ins_ids:
-                    #         features[ins_id] = torch.from_numpy(np.zeros((1,1)))
+                                    
 
                     projections = do_range_projection(points)           # (2, 123389)
                     points = torch.from_numpy(points)
@@ -1180,7 +1162,7 @@ class ModelTester:
                                 if label_value in test_loader.dataset.ignored_labels:
                                     frame_probs_uint8_p = np.insert(frame_probs_uint8_p, l_ind, 0, axis=1)
 
-                                # Predicted labels
+                            # Predicted labels
                             frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8_p,       # 123389
                                                                                      axis=1)].astype(np.int32)
 
@@ -1197,15 +1179,7 @@ class ModelTester:
                             #print('Saving {}'.format(filepath_p))
                             np.save(filepath_p, frame_preds)
 
-                            # ins_features = {}
-                            # for ins_id in np.unique(ins_preds):
-                            #     if int(ins_id) in self.instances[sequence]:
-                            #         pt_idx = np.where(ins_preds==ins_id)[0]
-                            #         ins_features[int(ins_id)] = torch.tensor(pt_features[pt_idx]).type(torch.float32)
-
-                            # filename_f = '{:s}_{:07d}_{}_f.npy'.format(seq_name, f_ind-fi-1, f_ind)
-                            # filepath_f = join(test_path, folder, filename_f)
-                            #np.save(filepath_f, ins_features)
+                           
 
                             ############
                             prediction_path = os.path.join(test_path, folder)
@@ -1446,10 +1420,6 @@ class ModelTester:
 
                     # Stack all prediction for this epoch
                     i0 += length
-
-
-
-
 
 
 

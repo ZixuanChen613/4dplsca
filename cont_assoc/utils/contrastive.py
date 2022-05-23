@@ -1,3 +1,5 @@
+# import pdb
+# pdb.set_trace()
 import math
 import MinkowskiEngine as ME
 import numpy as np
@@ -45,7 +47,7 @@ def group_instances(gt_coors, pt_raw_feat, ins_pred):
         _feats = []
         _ids = []
         pt_coors = gt_coors[i]#get point coordinates
-        feat = pt_raw_feat[i].numpy()#get point features
+        feat = pt_raw_feat[i]   #  pt_raw_feat[i].numpy()   #get point features
         #get instance ids
         pt_ins_id = ins_pred[i]
         valid = pt_ins_id != 0 #ignore id=0

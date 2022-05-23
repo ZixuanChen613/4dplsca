@@ -26,19 +26,19 @@ def save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, p
         sem = frame_preds
         ins = ins_preds
         valid = ins != 0
-        seq_path = '/data1/zixuan.chen/data/validation_predictions/sequences/'+seq+'/'
+        seq_path = '/data2/zixuan.chen/data/validation_predictions/sequences/'+seq+'/'
         max_pt = 30
 
     else:
         sem = batch.val_labels[0].astype(np.uint8)              # (123389, 1)   0-19
         ins = batch.ins_labels.cpu().numpy().astype(np.int32)  # (123389, 1)  instance labels
         valid = np.where((proj_mask==True) & (ins!=0))[0]  # (119195,)   valid instance flag ; (119195, 1) True
-        seq_path = '/data1/zixuan.chen/data/instance_features/sequences/'+seq+'/'
+        seq_path = '/data2/zixuan.chen/data/instance_features/sequences/'+seq+'/'
         max_pt = 10
-        # sem = pred.majority_voting(sem, ins)
+        sem = pred.majority_voting(sem, ins)  ####???
 
 
-    ids, n_ids = np.unique(ins[valid],return_counts=True) # ins[valid]: (4322, 1)
+    ids, n_ids = np.unique(ins[valid], return_counts=True) # ins[valid]: (4322, 1)
     for ii in range(len(ids)):
         if n_ids[ii] <= max_pt:
             continue
@@ -83,6 +83,9 @@ def save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, p
         frame_preds, ins_preds, velo_file, batch_labels, batch_ins], dtype=object)
     else:
         np_instances = np.array([seq, fname, _ids, _sem_labels, _n_pts, _coors, _feats], dtype=object)
+    # if fname == '0000037':
+    #     print(_sem_labels)
+    #     print(_ids)
     np.save(filename, np_instances, allow_pickle=True)
 
 

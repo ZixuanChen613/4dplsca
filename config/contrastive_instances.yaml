@@ -3,8 +3,8 @@ EXPERIMENT:
 
 DATA_CONFIG:
     DATASET_NAME: KittiInstanceFeatures
-    DATASET_PATH: /data1/zixuan.chen/data/instance_features
-    VAL_PRED_PATH: /data1/zixuan.chen/data/validation_predictions
+    DATASET_PATH: /data2/zixuan.chen/data/instance_features
+    VAL_PRED_PATH: /data2/zixuan.chen/data/validation_predictions
     CONFIG_FILE: /data1/zixuan.chen/data/semantic-kitti.yaml
     DATALOADER:
         AUGMENTATION:
