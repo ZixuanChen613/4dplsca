@@ -1,3 +1,5 @@
+# import pdb
+# pdb.set_trace()
 import MinkowskiEngine as ME
 import numpy as np
 import torch
@@ -146,8 +148,8 @@ class ContrastiveTracking(LightningModule):
 class SparseEncoder(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        input_dim = cfg.DATA_CONFIG.DATALOADER.DATA_DIM #128
-        channels = [x * input_dim for x in cfg.MODEL.ENCODER.CHANNELS] #128, 128, 256, 512
+        input_dim = cfg.DATA_CONFIG.DATALOADER.DATA_DIM #256
+        channels = [x * input_dim for x in cfg.MODEL.ENCODER.CHANNELS] #256, 512, 1024, 2048
         kernel_size = 3
 
         self.conv1 = SparseConvBlock(

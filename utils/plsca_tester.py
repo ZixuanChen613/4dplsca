@@ -795,7 +795,7 @@ class ModelTester:
                         if valid_ind.shape[0] < 25:
                             ins_preds[valid_ind] = 0              
                                                                             # [0, 21, 22, 24, 25, 26, 27, 31], [0, 21, 22, 26, 37, 38, 43, 44, 48]
-###################################################################################################
+                    ###############################################################################
                     frame_points = np.fromfile(velo_file, dtype=np.float32)                         # 123433
                     frame_points = frame_points.reshape((-1, 4))                                    # 123433
                     proj_mask = r_mask_list[b_i]
@@ -807,14 +807,25 @@ class ModelTester:
                     sem_pred = pred.majority_voting(frame_preds, ins_preds)
 
                     #############################
-                    raw_features = pt_features
+                    raw_features = pt_features.astype(np.float32) 
                     pt_coors = frame_points[:, :3]
 
                     ins_feat, n_ins, ins_ids, ins_pred, tracking_input = self.get_ins_feat(pt_coors, ins_preds, raw_features)
 
                     if len(ins_feat)!=0:
-                        ins_pred = self.track(ins_pred, ins_feat, n_ins, ins_ids, tracking_input, pose)
+                        ins_pred = self.track(ins_pred, ins_feat, n_ins, ins_ids, tracking_input, [pose])[0]
 
+                    # save prediction ins and sem_label results for test
+                    result_folder = 'pred_result'
+                    result_path = os.path.join(test_path, result_folder) 
+                    if not exists(result_path):
+                        makedirs(result_path)
+                    
+                    filename_pred = '{:s}_{:07d}_pred.npy'.format(seq_name, f_ind)
+                    filepath_pred = join(test_path, folder, filename_pred)
+                    np.save(filepath_pred, [sem_pred, ins_preds])
+
+                    
                     # return sem_pred, ins_pred
 
                     # if pls_cfg.SAVE_TRAIN_FEATURES:
@@ -822,101 +833,40 @@ class ModelTester:
                     # elif pls_cfg.SAVE_VAL_PRED:
                     #     save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, proj_mask, ins_preds, frame_preds, save_preds = True)
 
-##############################################################################################
-                    # evaluation step
 
+
+                    ##################################################################################
                     # # Save some prediction in ply format for visual
-                    if test_loader.dataset.set == 'validation':
 
-                        # Insert false columns for ignored labels
-                        frame_probs_uint8_bis = frame_probs_uint8.copy()
-                        for l_ind, label_value in enumerate(test_loader.dataset.label_values):
-                            if label_value in test_loader.dataset.ignored_labels:
-                                frame_probs_uint8_bis = np.insert(frame_probs_uint8_bis, l_ind, 0, axis=1)
+                    # Insert false columns for ignored labels
+                    for l_ind, label_value in enumerate(test_loader.dataset.label_values):
+                        if label_value in test_loader.dataset.ignored_labels:
+                            frame_probs_uint8 = np.insert(frame_probs_uint8, l_ind, 0, axis=1)
 
-                        # Predicted labels
-                        frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8_bis,
-                                                                                 axis=1)].astype(np.int32)
-
-                        np.save(filepath, frame_preds)
-                    #     #print('Saving {}'.format(filepath))
-                    #     # Save some of the frame pots
-                        if f_ind % 20 == 0:
-                            seq_path = join(test_loader.dataset.path, 'sequences', test_loader.dataset.sequences[s_ind])
-                            velo_file = join(seq_path, 'velodyne', test_loader.dataset.frames[s_ind][f_ind] + '.bin')
-                            frame_points = np.fromfile(velo_file, dtype=np.float32)
-                            frame_points = frame_points.reshape((-1, 4))
-                            predpath = join(test_path, pred_folder, filename[:-4] + '.ply')
-                            #pots = test_loader.dataset.f_potentials[s_ind][f_ind]
-                            pots = np.zeros((0,))
-                            if pots.shape[0] > 0:
-                                write_ply(predpath,
-                                          [frame_points[:, :3], frame_labels, frame_preds, pots],
-                                          ['x', 'y', 'z', 'gt', 'pre', 'pots'])
-                            else:
-                                write_ply(predpath,
-                                          [frame_points[:, :3], frame_labels, frame_preds],
-                                          ['x', 'y', 'z', 'gt', 'pre'])
-
-                            # Also Save lbl probabilities
-                            probpath = join(test_path, folder, filename[:-4] + '_probs.ply')
-                            lbl_names = [test_loader.dataset.label_to_names[l]
-                                         for l in test_loader.dataset.label_values
-                                         if l not in test_loader.dataset.ignored_labels]
-                            write_ply(probpath,
-                                      [frame_points[:, :3], frame_probs_uint8],
-                                      ['x', 'y', 'z'] + lbl_names)
-
-                        # keep frame preds in memory
-                        all_f_preds[s_ind][f_ind] = frame_preds
-                        all_f_labels[s_ind][f_ind] = frame_labels
-                    
-                    else:
-
-                        # Insert false columns for ignored labels
-                        for l_ind, label_value in enumerate(test_loader.dataset.label_values):
-                            if label_value in test_loader.dataset.ignored_labels:
-                                frame_probs_uint8 = np.insert(frame_probs_uint8, l_ind, 0, axis=1)
-
-                        # Predicted labels
-                        frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8,
-                                                                                 axis=1)].astype(np.int32)
-                        np.save(filepath, frame_preds)
-                        if f_inds[b_i, 1] % 100 == 0:
-                            # Load points
-                            seq_path = join(test_loader.dataset.path, 'sequences', test_loader.dataset.sequences[s_ind])
-                            velo_file = join(seq_path, 'velodyne', test_loader.dataset.frames[s_ind][f_ind] + '.bin')
-                            frame_points = np.fromfile(velo_file, dtype=np.float32)
-                            frame_points = frame_points.reshape((-1, 4))
-                            predpath = join(test_path, pred_folder, filename[:-4] + '.ply')
-                            #pots = test_loader.dataset.f_potentials[s_ind][f_ind]
-                            pots = np.zeros((0,))
-                            if pots.shape[0] > 0:
-                                write_ply(predpath,
-                                          [frame_points[:, :3], frame_preds, pots],
-                                          ['x', 'y', 'z', 'pre', 'pots'])
-                            else:
-                                write_ply(predpath,
-                                          [frame_points[:, :3], frame_preds],
-                                          ['x', 'y', 'z', 'pre'])
-
+                    # Predicted labels
+                    frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8,
+                                                                                axis=1)].astype(np.int32)
+                    np.save(filepath, frame_preds)
+                    if f_inds[b_i, 1] % 100 == 0:
+                        # Load points
+                        seq_path = join(test_loader.dataset.path, 'sequences', test_loader.dataset.sequences[s_ind])
+                        velo_file = join(seq_path, 'velodyne', test_loader.dataset.frames[s_ind][f_ind] + '.bin')
+                        frame_points = np.fromfile(velo_file, dtype=np.float32)
+                        frame_points = frame_points.reshape((-1, 4))
+                        predpath = join(test_path, pred_folder, filename[:-4] + '.ply')
+                        #pots = test_loader.dataset.f_potentials[s_ind][f_ind]
+                        pots = np.zeros((0,))
+                        if pots.shape[0] > 0:
+                            write_ply(predpath,
+                                        [frame_points[:, :3], frame_preds, pots],
+                                        ['x', 'y', 'z', 'pre', 'pots'])
+                        else:
+                            write_ply(predpath,
+                                        [frame_points[:, :3], frame_preds],
+                                        ['x', 'y', 'z', 'pre'])
+                    ######################################################################################
                     # Stack all prediction for this epoch
                     i0 += length
-
-
-             
-
-
-
-
-
-
-
-
-
-
-
-
 
 
                 # Average timing
@@ -1022,26 +972,6 @@ class ModelTester:
                 break
 
         return
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

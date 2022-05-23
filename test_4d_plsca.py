@@ -222,7 +222,7 @@ if __name__ == '__main__':
     ag_cfg = edict(yaml.safe_load(open(config_ag)))
 
     ca_net = c_models.ContrastiveTracking(ag_cfg)
-    ca_chkp_path = 'experiments/last.ckpt'
+    ca_chkp_path = 'experiments/CA-Net/default/version_1/checkpoints/last.ckpt'
 
     # Define a visualizer class
     tester = ModelTester(pls_net, ca_net, pls_chkp_path=chosen_chkp, ca_chkp_path=ca_chkp_path)              ############ need to modify
