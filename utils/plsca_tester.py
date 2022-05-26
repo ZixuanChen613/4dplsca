@@ -247,6 +247,8 @@ class ModelTester:
         self.last_ins_id = 0
         print("Model and training state restored.")
 
+
+
         return
 
     # Test main methods
@@ -315,6 +317,17 @@ class ModelTester:
         last_min = -0.5
         softmax = torch.nn.Softmax(1)
 
+        ###############
+        data_cfg = '/data1/zixuan.chen/data/kitti/semantic-kitti.yaml'
+        with open(data_cfg, 'r') as stream:
+            doc = yaml.safe_load(stream)
+            learning_map_doc = doc['learning_map']
+            inv_learning_map_doc = doc['learning_map_inv']
+
+        inv_learning_map = np.zeros((np.max([k for k in inv_learning_map_doc.keys()]) + 1), dtype=np.int32)
+        for k, v in inv_learning_map_doc.items():
+            inv_learning_map[k] = v
+
         # Number of classes including ignored labels
         nc_tot = test_loader.dataset.num_classes
         nc_model = self.pls_net.C
@@ -343,13 +356,8 @@ class ModelTester:
             if not exists(report_path):
                 makedirs(report_path)
 
-        if test_loader.dataset.set in ['validation', 'save_pred_validation']:
+        if test_loader.dataset.set in ['validation']:
             for folder in ['val_predictions', 'val_probs']:
-                if not exists(join(test_path, folder)):
-                    makedirs(join(test_path, folder))
-        
-        elif test_loader.dataset.set == 'save_pred_training':
-            for folder in ['train_predictions', 'train_probs']:
                 if not exists(join(test_path, folder)):
                     makedirs(join(test_path, folder))
         else: # test
@@ -495,12 +503,9 @@ class ModelTester:
 
                     # Save probs in a binary file (uint8 format for lighter weight)
                     seq_name = test_loader.dataset.sequences[s_ind]
-                    if test_loader.dataset.set in ['validation', 'save_pred_validation']:
+                    if test_loader.dataset.set in ['validation']:
                         folder = 'val_probs'
                         pred_folder = 'val_predictions'
-                    elif test_loader.dataset.set == 'save_pred_training':
-                        folder = 'train_probs'
-                        pred_folder = 'train_predictions'
                     else:
                         folder = 'test_probs'
                         pred_folder = 'test_predictions'
@@ -814,16 +819,41 @@ class ModelTester:
 
                     if len(ins_feat)!=0:
                         ins_pred = self.track(ins_pred, ins_feat, n_ins, ins_ids, tracking_input, [pose])[0]
+                        
 
                     # save prediction ins and sem_label results for test
+                     
+                    ############
+
+                    #clean instances which have too few points
+                    for ins_id in np.unique(ins_pred):              # [0, 1, 2, 4, 5, 6, 7, 11], [0, 1, 2, 4, 6, 17, 18, 23, 24, 28]
+                        if ins_id == 0:
+                            continue
+                        valid_ind = np.argwhere(ins_pred == ins_id)[:, 0]     # ins_id = 1 ----> n_ins = 306
+                        ins_pred[valid_ind] = ins_id+20                       # ??????????   43 -----> 63   ??????????
+                        if valid_ind.shape[0] < 25:
+                            ins_pred[valid_ind] = 0              
+                                                                            # [0, 21, 22, 24, 25, 26, 27, 31], [0, 21, 22, 26, 37, 38, 43, 44, 48]
+                    for sem_id in np.unique(sem_pred):                  # [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] without 8
+                        if sem_id < 1 or sem_id > 8:                           # sem_id [0, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+                            valid_ind = np.argwhere((sem_pred == sem_id) & (ins_pred == 0))[:, 0]    # (4194,) semantic class = 0 and ins_id = 0
+                            ins_pred[valid_ind] = sem_id                      # label instance which doesn't belong to things  
+
+                    #write instances to label file which is binary
+                    ins_preds = ins_pred.astype(np.int32)
+                    new_preds = np.left_shift(ins_preds, 16)
+
+                    sem_preds = sem_pred.astype(np.int32)
+                    inv_sem_labels = inv_learning_map[sem_preds]
+                    new_preds = np.bitwise_or(new_preds,inv_sem_labels)
+
+
                     result_folder = 'pred_result'
-                    result_path = os.path.join(test_path, result_folder) 
-                    if not exists(result_path):
-                        makedirs(result_path)
-                    
-                    filename_pred = '{:s}_{:07d}_pred.npy'.format(seq_name, f_ind)
-                    filepath_pred = join(test_path, folder, filename_pred)
-                    np.save(filepath_pred, [sem_pred, ins_preds])
+                    save_path = os.path.join(test_path, result_folder)
+                    if not os.path.exists(os.path.join(save_path, 'sequences', '{0:02d}'.format(int(sequence)), 'predictions')):
+                        os.makedirs(os.path.join(save_path, 'sequences', '{0:02d}'.format(int(sequence)), 'predictions'))
+
+                    new_preds.tofile('{}/{}/{:02d}/predictions/{:06d}.label'.format(save_path, 'sequences', int(sequence), f_ind))
 
                     
                     # return sem_pred, ins_pred
@@ -837,33 +867,79 @@ class ModelTester:
 
                     ##################################################################################
                     # # Save some prediction in ply format for visual
+                    if test_loader.dataset.set == 'validation':
 
-                    # Insert false columns for ignored labels
-                    for l_ind, label_value in enumerate(test_loader.dataset.label_values):
-                        if label_value in test_loader.dataset.ignored_labels:
-                            frame_probs_uint8 = np.insert(frame_probs_uint8, l_ind, 0, axis=1)
+                        # Insert false columns for ignored labels
+                        frame_probs_uint8_bis = frame_probs_uint8.copy()
+                        for l_ind, label_value in enumerate(test_loader.dataset.label_values):
+                            if label_value in test_loader.dataset.ignored_labels:
+                                frame_probs_uint8_bis = np.insert(frame_probs_uint8_bis, l_ind, 0, axis=1)
 
-                    # Predicted labels
-                    frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8,
-                                                                                axis=1)].astype(np.int32)
-                    np.save(filepath, frame_preds)
-                    if f_inds[b_i, 1] % 100 == 0:
-                        # Load points
-                        seq_path = join(test_loader.dataset.path, 'sequences', test_loader.dataset.sequences[s_ind])
-                        velo_file = join(seq_path, 'velodyne', test_loader.dataset.frames[s_ind][f_ind] + '.bin')
-                        frame_points = np.fromfile(velo_file, dtype=np.float32)
-                        frame_points = frame_points.reshape((-1, 4))
-                        predpath = join(test_path, pred_folder, filename[:-4] + '.ply')
-                        #pots = test_loader.dataset.f_potentials[s_ind][f_ind]
-                        pots = np.zeros((0,))
-                        if pots.shape[0] > 0:
-                            write_ply(predpath,
-                                        [frame_points[:, :3], frame_preds, pots],
-                                        ['x', 'y', 'z', 'pre', 'pots'])
-                        else:
-                            write_ply(predpath,
-                                        [frame_points[:, :3], frame_preds],
-                                        ['x', 'y', 'z', 'pre'])
+                        # Predicted labels
+                        frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8_bis,
+                                                                                 axis=1)].astype(np.int32)
+
+                        np.save(filepath, frame_preds)
+                        # Save some of the frame pots
+                        if f_ind % 20 == 0:
+                            seq_path = join(test_loader.dataset.path, 'sequences', test_loader.dataset.sequences[s_ind])
+                            velo_file = join(seq_path, 'velodyne', test_loader.dataset.frames[s_ind][f_ind] + '.bin')
+                            frame_points = np.fromfile(velo_file, dtype=np.float32)
+                            frame_points = frame_points.reshape((-1, 4))
+                            predpath = join(test_path, pred_folder, filename[:-4] + '.ply')
+                            #pots = test_loader.dataset.f_potentials[s_ind][f_ind]
+                            pots = np.zeros((0,))
+                            if pots.shape[0] > 0:
+                                write_ply(predpath,
+                                          [frame_points[:, :3], frame_labels, frame_preds, pots],
+                                          ['x', 'y', 'z', 'gt', 'pre', 'pots'])
+                            else:
+                                write_ply(predpath,
+                                          [frame_points[:, :3], frame_labels, frame_preds],
+                                          ['x', 'y', 'z', 'gt', 'pre'])
+
+                            # Also Save lbl probabilities
+                            probpath = join(test_path, folder, filename[:-4] + '_probs.ply')
+                            lbl_names = [test_loader.dataset.label_to_names[l]
+                                         for l in test_loader.dataset.label_values
+                                         if l not in test_loader.dataset.ignored_labels]
+                            write_ply(probpath,
+                                      [frame_points[:, :3], frame_probs_uint8],
+                                      ['x', 'y', 'z'] + lbl_names)
+
+                        # keep frame preds in memory
+                        all_f_preds[s_ind][f_ind] = frame_preds
+                        all_f_labels[s_ind][f_ind] = frame_labels
+
+                    else:
+
+                        # Insert false columns for ignored labels
+                        for l_ind, label_value in enumerate(test_loader.dataset.label_values):
+                            if label_value in test_loader.dataset.ignored_labels:
+                                frame_probs_uint8 = np.insert(frame_probs_uint8, l_ind, 0, axis=1)
+
+                        # Predicted labels
+                        frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8,
+                                                                                 axis=1)].astype(np.int32)
+                        np.save(filepath, frame_preds)
+                        if f_inds[b_i, 1] % 100 == 0:
+                            # Load points
+                            seq_path = join(test_loader.dataset.path, 'sequences', test_loader.dataset.sequences[s_ind])
+                            velo_file = join(seq_path, 'velodyne', test_loader.dataset.frames[s_ind][f_ind] + '.bin')
+                            frame_points = np.fromfile(velo_file, dtype=np.float32)
+                            frame_points = frame_points.reshape((-1, 4))
+                            predpath = join(test_path, pred_folder, filename[:-4] + '.ply')
+                            #pots = test_loader.dataset.f_potentials[s_ind][f_ind]
+                            pots = np.zeros((0,))
+                            if pots.shape[0] > 0:
+                                write_ply(predpath,
+                                          [frame_points[:, :3], frame_preds, pots],
+                                          ['x', 'y', 'z', 'pre', 'pots'])
+                            else:
+                                write_ply(predpath,
+                                          [frame_points[:, :3], frame_preds],
+                                          ['x', 'y', 'z', 'pre'])
+
                     ######################################################################################
                     # Stack all prediction for this epoch
                     i0 += length
@@ -967,11 +1043,10 @@ class ModelTester:
 
             test_epoch += 1
 
-            # Break when reaching number of desired votes     ??????????????????
+            # Break when reaching number of desired votes
             if last_min > num_votes:
                 break
 
         return
-
 
 

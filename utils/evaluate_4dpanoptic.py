@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # This file is covered by the LICENSE file in the root of this project.
 #https://github.com/PRBonn/semantic-kitti-ap
+
+import pdb
+pdb.set_trace()
 import argparse
 import os
 import yaml
