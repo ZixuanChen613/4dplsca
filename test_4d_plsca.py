@@ -108,7 +108,7 @@ if __name__ == '__main__':
     chkp_idx = None
 
     # Choose to test on validation or test split
-    on_val = False
+    on_val = True
 
     # Deal with 'last_XXXXXX' choices
     chosen_log = model_choice(chosen_log)
@@ -234,6 +234,12 @@ if __name__ == '__main__':
     pls_cfg.dataset_task = '4d_panoptic'
 
     tester.panoptic_4d_test(test_loader, pls_cfg, ag_cfg)
+
+    ##############################################
+    # model.panoptic_model.evaluator.print_results()
+    # print("#############################################################")
+    # model.evaluator4D.calculate_metrics()
+    # model.evaluator4D.print_results()
 
     
     

@@ -142,7 +142,7 @@ def main(FLAGS):
     save_path = '{}/stitch'.format(prediction_dir)+assoc_saving      # /stitch4   
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-
+    
     with open(data_cfg, 'r') as stream:
         doc = yaml.safe_load(stream)
         learning_map_doc = doc['learning_map']

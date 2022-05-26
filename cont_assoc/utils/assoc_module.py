@@ -105,7 +105,7 @@ class AssociationModule():
             for j, (id2, v2) in enumerate(curr_ins.items()):
                 if i == 0: curr_ids.append(id2)
 
-                cost_feature = 1 - self.cos(v2['feature'], v1['feature']).cpu().numpy()
+                cost_feature = 1 - self.cos(v2['feature'], v1['feature']).cpu().detach().numpy()
                 if cost_feature > feat_T: cost_feature = 1e8 - 1
 
                 cost_dist = t.euclidean_dist(v2['kalman_bbox'], v1['kalman_bbox'])
