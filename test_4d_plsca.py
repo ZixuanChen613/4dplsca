@@ -102,7 +102,7 @@ if __name__ == '__main__':
     #       > 'last_XXX': Automatically retrieve the last trained model on dataset XXX
     #       > '(old_)results/Log_YYYY-MM-DD_HH-MM-SS': Directly provide the path of a trained model
 
-    chosen_log = 'results/Log_2020-10-06_16-51-05'  # => ModelNet40
+    chosen_log = '/data2/zixuan.chen/data/results/Log_2020-10-06_16-51-05'  # => ModelNet40
 
     # Choose the index of the checkpoint to load OR None if you want to load the current checkpoint
     chkp_idx = None
@@ -222,7 +222,7 @@ if __name__ == '__main__':
     ag_cfg = edict(yaml.safe_load(open(config_ag)))
 
     ca_net = c_models.ContrastiveTracking(ag_cfg)
-    ca_chkp_path = 'experiments/CA-Net/default/version_1/checkpoints/last.ckpt'
+    ca_chkp_path = '/data2/zixuan.chen/data/experiments/CA-Net_epoch=010_AQ=0.631.ckpt'
 
     # Define a visualizer class
     tester = ModelTester(pls_net, ca_net, pls_chkp_path=chosen_chkp, ca_chkp_path=ca_chkp_path)              ############ need to modify

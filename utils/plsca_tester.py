@@ -20,8 +20,8 @@
 #           Imports and global variables
 #       \**********************************/
 
-import pdb
-pdb.set_trace()
+# import pdb
+# pdb.set_trace()
 
 # Basic libs
 import os

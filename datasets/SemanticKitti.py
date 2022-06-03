@@ -76,7 +76,7 @@ class SemanticKittiDataset(PointCloudDataset):
 
         # Get a list of sequences
         if self.set in ['training', 'save_pred_training']:
-            self.sequences = ['{:02d}'.format(i) for i in range(1,11) if i != 8]   ### modify
+            self.sequences = ['{:02d}'.format(i) for i in range(7,8) if i != 8]   ### modify
         elif self.set in ['validation', 'save_pred_validation']:
             self.sequences = ['{:02d}'.format(i) for i in range(11) if i == 8]
         elif self.set == 'test':
