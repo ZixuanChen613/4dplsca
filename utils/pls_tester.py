@@ -45,59 +45,12 @@ from utils.tracking_utils import *
 from scipy.optimize import linear_sum_assignment
 #from utils.visualizer import show_ModelNet_models
 from utils.save_features import save_features
-import cont_assoc.utils.predict as pred
-import cont_assoc.utils.contrastive as cont
 
-from easydict import EasyDict as edict
-import yaml
 # ----------------------------------------------------------------------------------------------------------------------
 #
 #           Tester Class
 #       \******************/
 #
-
-
-def associate_overlapped_ins(overlaps, overlap_history, label_inst, new_instances, prev_instances):
-    for (new_id, prev_id) in overlaps.items():
-        ins_points = torch.where((label_inst == new_id))
-        if not new_id in new_instances or prev_id not in prev_instances:
-            continue
-        overlap_history[new_id] = prev_id#add tracking id
-        label_inst[ins_points[0]] = prev_id
-        prev_instances[prev_id]['bbox_proj'] = new_instances[new_id]['bbox_proj']
-        # prev_instances[prev_id]['mean'] = new_instances[new_id]['mean']
-        prev_instances[prev_id]['center'] = new_instances[new_id]['center']
-        prev_instances[prev_id]['life'] += 1
-        prev_instances[prev_id]['tracker'].update(new_instances[new_id]['kalman_bbox'], prev_id)
-        prev_instances[prev_id]['kalman_bbox'] = torch.from_numpy(prev_instances[prev_id]['tracker'].get_state()).float()
-        prev_instances[prev_id]['bbox'] = kalman_box_to_eight_point(prev_instances[prev_id]['kalman_bbox'])
-
-        del new_instances[new_id]
-
-    return overlap_history, label_inst, new_instances, prev_instances
-
-def associate_not_overlapped_ins(associations, overlaps, overlap_history, label_inst, new_instances, prev_instances):
-    for prev_id, new_id in associations:
-        if new_id in overlaps:
-            continue
-        
-        ins_points = torch.where((label_inst == new_id))
-        label_inst[ins_points[0]] = prev_id
-        overlap_history[new_id] = prev_id
-        prev_instances[prev_id]['bbox_proj'] = new_instances[new_id]['bbox_proj']
-        # prev_instances[prev_id]['mean'] = new_instances[new_id]['mean']
-        prev_instances[prev_id]['center'] = new_instances[new_id]['center']
-        prev_instances[prev_id]['life'] += 1
-        prev_instances[prev_id]['tracker'].update(new_instances[new_id]['kalman_bbox'], prev_id)
-        prev_instances[prev_id]['kalman_bbox'] = torch.from_numpy(prev_instances[prev_id]['tracker'].get_state()).float()
-        prev_instances[prev_id]['bbox'] = kalman_box_to_eight_point(prev_instances[prev_id]['kalman_bbox'])
-
-        del new_instances[new_id]
-        
-    return overlap_history, label_inst, new_instances, prev_instances
-
-
-
 
 
 def associate_instances(previous_instances, current_instances, overlaps,  pose, association_weights):
@@ -212,14 +165,11 @@ class ModelTester:
     # Initialization methods
     # ------------------------------------------------------------------------------------------------------------------
 
-    def __init__(self, pls_net, ca_net, pls_chkp_path=None, ca_chkp_path=None, on_gpu=True):
+    def __init__(self, net, chkp_path=None, on_gpu=True):
 
         ############
         # Parameters
         ############
-        self.pls_net = pls_net
-        self.ca_net = ca_net
-
         self.instances = {} #store instance ids and mean, cov fors sequantial prediction
         self.next_ins_id = 1 #next ins id for new instance
 
@@ -228,82 +178,24 @@ class ModelTester:
             self.device = torch.device("cuda:0")
         else:
             self.device = torch.device("cpu")
-        self.pls_net.to(self.device)
-        self.ca_net.to(self.device)
+        net.to(self.device)
 
         ##########################
         # Load previous checkpoint
         ##########################
 
-        pls_checkpoint = torch.load(pls_chkp_path)
-        ca_checkpoint = torch.load(ca_chkp_path)
-
-        self.pls_net.load_state_dict(pls_checkpoint['model_state_dict'])
-        self.ca_net.load_state_dict(ca_checkpoint['state_dict'])       # map_location='cpu'
-
-        self.epoch = pls_checkpoint['epoch']
-        self.pls_net.eval()
-        self.ca_net.eval()
-        self.last_ins_id = 0
+        checkpoint = torch.load(chkp_path)
+        net.load_state_dict(checkpoint['model_state_dict'])
+        self.epoch = checkpoint['epoch']
+        net.eval()
         print("Model and training state restored.")
-
-
 
         return
 
     # Test main methods
     # ------------------------------------------------------------------------------------------------------------------
 
-
-    def get_ins_feat(self, pt_coors, ins_pred, raw_features):
-        #Group points into instances
-        pt_raw_feat = [raw_features]
-        pt_coordinates = [pt_coors]
-        ins_pred = [ins_pred]
-
-        coordinates, features, n_instances, ins_ids, ins_pred = cont.group_instances(pt_coordinates, pt_raw_feat, ins_pred)
-
-        #Discard scans without instances
-        features = [x for x in features if len(x)!=0]
-        coordinates = [x for x in coordinates if len(x)!=0]
-
-        if len(features)==0:#don't run tracking head if no ins
-            # return [], [], [], ins_pred
-            return [], [], [], ins_pred, {}
-
-        #Get per-instance feature
-        tracking_input = {'pt_features':features,'pt_coors':coordinates}
-
-        ins_feat = self.ca_net(tracking_input)
-
-        if len(coordinates) != len(ins_ids):
-            #scans without instances
-            new_feats, new_coors, new_coors_T = cont.fix_batches(ins_ids, features, coordinates, coordinates_T)
-            tracking_input = {'pt_features':new_feats,'pt_coors':new_coors, 'pt_coors_T':new_coors_T}
-
-        return ins_feat, n_instances, ins_ids, ins_pred, tracking_input
-
-    def track(self, ins_pred, ins_feat, n_instances, ins_ids, tr_input, poses):
-        #Separate instances of different scans
-        points = tr_input['pt_coors']
-        features = tr_input['pt_features']
-        ins_feat = torch.split(ins_feat, n_instances)
-        poses = [[p] for p in poses]
-
-        #Instance IDs association
-        ins_pred = self.ca_net.AssocModule.associate(ins_pred, ins_feat,
-                                                            points, features,
-                                                            poses, ins_ids)
-
-        self.last_ins_id = self.ca_net.AssocModule.get_last_id()
-        self.ca_net.AssocModule.update_last_id(self.last_ins_id)
-
-        return ins_pred
-
-
-
-
-    def panoptic_4d_test(self, test_loader, pls_cfg, ag_cfg, num_votes=100, debug=True):
+    def panoptic_4d_test(self, net, test_loader, config, num_votes=100, debug=True):
         """
         Test method for slam segmentation models
         """
@@ -317,50 +209,41 @@ class ModelTester:
         last_min = -0.5
         softmax = torch.nn.Softmax(1)
 
-        ###############
-        data_cfg = '/data1/zixuan.chen/data/kitti/semantic-kitti.yaml'
-        with open(data_cfg, 'r') as stream:
-            doc = yaml.safe_load(stream)
-            learning_map_doc = doc['learning_map']
-            inv_learning_map_doc = doc['learning_map_inv']
-
-        inv_learning_map = np.zeros((np.max([k for k in inv_learning_map_doc.keys()]) + 1), dtype=np.int32)
-        for k, v in inv_learning_map_doc.items():
-            inv_learning_map[k] = v
-
         # Number of classes including ignored labels
         nc_tot = test_loader.dataset.num_classes
-        nc_model = self.pls_net.C
+        nc_model = net.C
         # Test saving path
         test_path = None
-        report_path = None
+        # report_path = None
 
-        if pls_cfg.dataset_task == '4d_panoptic':
+        if config.dataset_task == '4d_panoptic':
 
             #assoc_saving = [asc_type for idx, asc_type in enumerate(config.association_types) if config.association_weights[idx] > 0]
             #assoc_saving.append(str(config.n_test_frames))
             #assoc_saving = '_'.join(assoc_saving)
-            assoc_saving = pls_cfg.sampling
-            pls_cfg.assoc_saving = pls_cfg.sampling+'_'+ pls_cfg.decay_sampling
-            if hasattr(pls_cfg, 'stride'):
-                pls_cfg.assoc_saving = pls_cfg.sampling + '_' + pls_cfg.decay_sampling+ '_str' + str(pls_cfg.stride) +'_'
-            if hasattr(pls_cfg, 'big_gpu') and pls_cfg.big_gpu:
-                pls_cfg.assoc_saving = pls_cfg.assoc_saving + 'bigpug_'
+            assoc_saving = config.sampling
+            config.assoc_saving = config.sampling+'_'+ config.decay_sampling
+            if hasattr(config, 'stride'):
+                config.assoc_saving = config.sampling + '_' + config.decay_sampling+ '_str' + str(config.stride) +'_'
+            if hasattr(config, 'big_gpu') and config.big_gpu:
+                config.assoc_saving = config.assoc_saving + 'bigpug_'
 
 
-        if pls_cfg.saving:
-            test_path = join('/_data/zixuan/data/', 'test_plsca', pls_cfg.saving_path.split('/')[-1]+ '_'+pls_cfg.assoc_saving+str(pls_cfg.n_test_frames))
+        if config.saving:
+            test_path = join('/data2/zixuan.chen/data/', 'test', config.saving_path.split('/')[-1]+ '_'+config.assoc_saving+str(config.n_test_frames))
             if not exists(test_path):
                 makedirs(test_path)
-            report_path = join(test_path, 'reports')
-            if not exists(report_path):
-                makedirs(report_path)
 
-        if test_loader.dataset.set in ['validation']:
+        if test_loader.dataset.set in ['validation', 'save_pred_validation']:
             for folder in ['val_predictions', 'val_probs']:
                 if not exists(join(test_path, folder)):
                     makedirs(join(test_path, folder))
-        else: # test
+        
+        elif test_loader.dataset.set == 'save_pred_training':
+            for folder in ['train_predictions', 'train_probs']:
+                if not exists(join(test_path, folder)):
+                    makedirs(join(test_path, folder))
+        else:
             for folder in ['test_predictions', 'test_probs']:
                 if not exists(join(test_path, folder)):
                     makedirs(join(test_path, folder))
@@ -374,7 +257,7 @@ class ModelTester:
                 all_f_labels.append([np.zeros((0,), dtype=np.int32) for _ in seq_frames])
 
         #####################
-        # 4Dplsca Network predictions
+        # Network predictions
         #####################
 
         predictions = []
@@ -399,12 +282,12 @@ class ModelTester:
                     print('Done in {:.1f}s'.format(t[1] - t[0]))
 
                 flag = True
-                if pls_cfg.n_test_frames > 1:
+                if config.n_test_frames > 1:
                     lengths = batch.lengths[0].cpu().numpy()
                     for b_i, length in enumerate(lengths):
                         f_inds = batch.frame_inds.cpu().numpy()
                         f_ind = f_inds[b_i, 1]
-                        if f_ind % pls_cfg.n_test_frames != pls_cfg.n_test_frames-1:
+                        if f_ind % config.n_test_frames != config.n_test_frames-1:
                              flag = False
 
                 if processed == test_loader.dataset.all_inds.shape[0]:
@@ -423,7 +306,7 @@ class ModelTester:
 
                 with torch.no_grad():
                     # f_ind = 1
-                    outputs, centers_output, var_output, embedding = self.pls_net(batch, pls_cfg)   # # (153815, 19); (N, 1); (N, 260 = 256+4); (N, 256)
+                    outputs, centers_output, var_output, embedding = net(batch, config)   # # (153815, 19); (N, 1); (N, 260 = 256+4); (N, 256)
                     #ins_preds = torch.zeros(outputs.shape[0])
 
                     probs = softmax(outputs).cpu().detach().numpy()                        # (153815, 19)
@@ -439,7 +322,7 @@ class ModelTester:
                     if sequence not in self.instances:
                         self.instances[sequence] = {}
                     #ins_preds = net.ins_pred(preds, centers_output, var_output, embedding, batch.points)
-                    ins_preds, new_instances, ins_id = self.pls_net.ins_pred_in_time(pls_cfg, preds, centers_output, var_output, embedding, self.instances[sequence],
+                    ins_preds, new_instances, ins_id = net.ins_pred_in_time(config, preds, centers_output, var_output, embedding, self.instances[sequence],
                                                      self.next_ins_id, batch.points, batch.times.unsqueeze(1), pose)
 
                     self.next_ins_id = ins_id#update next available ins id
@@ -463,7 +346,7 @@ class ModelTester:
                 lengths = batch.lengths[0].cpu().numpy()
                 f_inds = batch.frame_inds.cpu().numpy()                  # 0,1
                 r_inds_list = batch.reproj_inds                          # 119331
-                r_mask_list = batch.reproj_masks                         # 123433
+                r_mask_list = batch.reproj_masks                         # 123433 : False or True
                 f_inc_r_inds_list = batch.f_inc_reproj_inds              # 119160
                 f_inc_r_mask_list = batch.f_inc_reproj_masks             # 123389
 
@@ -503,12 +386,13 @@ class ModelTester:
 
                     # Save probs in a binary file (uint8 format for lighter weight)
                     seq_name = test_loader.dataset.sequences[s_ind]
-                    if test_loader.dataset.set in ['validation']:
+                    if test_loader.dataset.set in ['save_pred_validation']:
                         folder = 'val_probs'
                         pred_folder = 'val_predictions'
-                    else:
-                        folder = 'test_probs'
-                        pred_folder = 'test_predictions'
+                    elif test_loader.dataset.set == 'save_pred_training':
+                        folder = 'train_probs'
+                        pred_folder = 'train_predictions'
+                
 
                     filename = '{:s}_{:07d}.npy'.format(seq_name, f_ind)
                     filepath = join(test_path, folder, filename)
@@ -570,7 +454,7 @@ class ModelTester:
                     # filepath_f = join(test_path, folder, filename_f)
 
                     #np.save(filepath_f, ins_features)
-
+                    ##################################################################################
                     #load current frame
                     ins_path = filepath_i
                     # fet_path = os.path.join(prediction_path, '{0:02d}_{1:07d}_f.npy'.format(sequence, idx))
@@ -633,12 +517,12 @@ class ModelTester:
                     new_instances_prev = {}
                     overlaps = {}
                     overlap_scores = {}
-
+                    ######################################################################################
 
                     # if multi frame prediction
                     times = []
                     times.append(time.time()) # loading time
-                    if pls_cfg.n_test_frames > 1 and f_ind > 0:
+                    if config.n_test_frames > 1 and f_ind > 0:
                         for fi in range(len(f_inc_r_inds_list[b_i])):
                             proj_inds = f_inc_r_inds_list[b_i][fi]                     # 119160
                             proj_mask = f_inc_r_mask_list[b_i][fi]                     # 123389
@@ -666,11 +550,11 @@ class ModelTester:
 
                             filename_i = '{:s}_{:07d}_{}_i.npy'.format(seq_name, f_ind - fi - 1, f_ind)
                             filepath_i = join(test_path, folder, filename_i)
-                            # filename_m = '{:s}_{:07d}_{}_m.npy'.format(seq_name, f_ind - fi - 1, f_ind)
-                            # filepath_m = join(test_path, folder, filename_m)
+                            filename_m = '{:s}_{:07d}_{}_m.npy'.format(seq_name, f_ind - fi - 1, f_ind)
+                            filepath_m = join(test_path, folder, filename_m)
                             #('Saving {}'.format(filepath_i))
                             np.save(filepath_i, ins_preds)
-                            # np.save(filepath_m, proj_mask)
+                            np.save(filepath_m, proj_mask)
                             
                             filename_p = '{:s}_{:07d}_{}.npy'.format(seq_name, f_ind-fi-1, f_ind)
                             filepath_p = join(test_path, folder, filename_p)
@@ -760,18 +644,45 @@ class ModelTester:
 
                     associations = []
                     times.append(time.time()) # assoc time from prev
-
                     # if there was instances from previous frames
                     if len(prev_instances.keys()) > 0:
                         #firstly associate overlapping instances
-                        overlap_history, label_inst, new_instances, prev_instances = associate_overlapped_ins(overlaps, overlap_history, 
-                                                                                                label_inst, new_instances, prev_instances)
-                        # associate instances which are not overlapped
-                        overlap_history, label_inst, new_instances, prev_instances = associate_not_overlapped_ins(associations, overlaps, 
-                                                                                            overlap_history, label_inst, new_instances, prev_instances)
+                        for (new_id, prev_id) in overlaps.items():
+                            ins_points = torch.where((label_inst == new_id))
+                            if not new_id in new_instances or prev_id not in prev_instances:
+                                continue
+                            overlap_history[new_id] = prev_id#add tracking id
+                            label_inst[ins_points[0]] = prev_id
+                            prev_instances[prev_id]['bbox_proj'] = new_instances[new_id]['bbox_proj']
+                            # prev_instances[prev_id]['mean'] = new_instances[new_id]['mean']
+                            prev_instances[prev_id]['center'] = new_instances[new_id]['center']
 
-                    # add new instances to history
-                    for ins_id, instance in new_instances.items():       # [1, 2, 4, 5, 6 ,7, 11], [17, 18, 23, 24, 28]
+                            prev_instances[prev_id]['life'] += 1
+                            prev_instances[prev_id]['tracker'].update(new_instances[new_id]['kalman_bbox'], prev_id)
+                            prev_instances[prev_id]['kalman_bbox'] = torch.from_numpy(prev_instances[prev_id]['tracker'].get_state()).float()
+                            prev_instances[prev_id]['bbox'] = kalman_box_to_eight_point(prev_instances[prev_id]['kalman_bbox'])
+
+                            del new_instances[new_id]
+
+                        for prev_id, new_id in associations:
+                            if new_id in overlaps:
+                                continue
+                            # associate  instances which are not overlapped
+                            ins_points = torch.where((label_inst == new_id))
+                            label_inst[ins_points[0]] = prev_id
+                            overlap_history[new_id] = prev_id
+                            prev_instances[prev_id]['bbox_proj'] = new_instances[new_id]['bbox_proj']
+                            # prev_instances[prev_id]['mean'] = new_instances[new_id]['mean']
+                            prev_instances[prev_id]['center'] = new_instances[new_id]['center']
+
+                            prev_instances[prev_id]['life'] += 1
+                            prev_instances[prev_id]['tracker'].update(new_instances[new_id]['kalman_bbox'], prev_id)
+                            prev_instances[prev_id]['kalman_bbox'] = torch.from_numpy(prev_instances[prev_id]['tracker'].get_state()).float()
+                            prev_instances[prev_id]['bbox'] = kalman_box_to_eight_point(prev_instances[prev_id]['kalman_bbox'])
+
+                            del new_instances[new_id]
+
+                    for ins_id, instance in new_instances.items():  # add new instances to history     # [1, 2, 4, 5, 6 ,7, 11], [17, 18, 23, 24, 28]
                         ids = np.where(label_inst == ins_id)
                         if ids[0].shape[0] < 50:                   # drop ins 11
                             continue
@@ -800,164 +711,27 @@ class ModelTester:
                         if valid_ind.shape[0] < 25:
                             ins_preds[valid_ind] = 0              
                                                                             # [0, 21, 22, 24, 25, 26, 27, 31], [0, 21, 22, 26, 37, 38, 43, 44, 48]
-                    ###############################################################################
+                    # for sem_id in np.unique(label_sem_class):                  # [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] without 8
+                    #     if sem_id < 1 or sem_id > 8:                           # sem_id [0, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+                    #         valid_ind = np.argwhere((label_sem_class == sem_id) & (ins_preds == 0))[:, 0]    # (4194,) semantic class = 0 and ins_id = 0
+                    #         ins_preds[valid_ind] = sem_id                      # label instance which doesn't belong to things  
+
+
+
+                    #########################################################################
                     frame_points = np.fromfile(velo_file, dtype=np.float32)                         # 123433
                     frame_points = frame_points.reshape((-1, 4))                                    # 123433
                     proj_mask = r_mask_list[b_i]
                     frame_preds = label_sem_class
+                    ############################################################################
+                    if config.SAVE_TRAIN_FEATURES:
+                        save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, proj_mask, ins_preds, frame_preds, save_preds = False)
+                    elif config.SAVE_VAL_PRED:
+                        save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, proj_mask, ins_preds, frame_preds, save_preds = True)
 
 
-                    frame_preds = frame_preds.astype(np.int64)
-                    ins_preds = ins_preds.astype(np.int32)
-                    sem_pred = pred.majority_voting(frame_preds, ins_preds)
-
-                    #############################
-                    raw_features = pt_features.astype(np.float32) 
-                    pt_coors = frame_points[:, :3]
-
-                    ins_feat, n_ins, ins_ids, ins_pred, tracking_input = self.get_ins_feat(pt_coors, ins_preds, raw_features)
-
-                    if len(ins_feat)!=0:
-                        ins_pred = self.track(ins_pred, ins_feat, n_ins, ins_ids, tracking_input, [pose])[0]
-                    else:
-                        ins_pred = ins_pred[0]
-
-                    # save prediction ins and sem_label results for test
-
-                    sem_tsne =[]   
-                    ############
-
-                    #clean instances which have too few points
-                    for ins_id in np.unique(ins_pred):              # [0, 1, 2, 4, 5, 6, 7, 11], [0, 1, 2, 4, 6, 17, 18, 23, 24, 28]
-                        if ins_id == 0:
-                            continue
-                        valid_ind = np.argwhere(ins_pred == ins_id)[:, 0]     # ins_id = 1 ----> n_ins = 306
-                        sem_tsne.append(sem_pred[valid_ind[0]])
-                        ins_pred[valid_ind] = ins_id+20                       # ??????????   43 -----> 63   ??????????
-                        if valid_ind.shape[0] < 25:
-                            ins_pred[valid_ind] = 0              
-                                                                            # [0, 21, 22, 24, 25, 26, 27, 31], [0, 21, 22, 26, 37, 38, 43, 44, 48]
-                    for sem_id in np.unique(sem_pred):                  # [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] without 8
-                        if sem_id < 1 or sem_id > 8:                           # sem_id [0, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-                            valid_ind = np.argwhere((sem_pred == sem_id) & (ins_pred == 0))[:, 0]    # (4194,) semantic class = 0 and ins_id = 0
-                            ins_pred[valid_ind] = sem_id                      # label instance which doesn't belong to things  
-
-                    #write instances to label file which is binary
-                    ins_preds = ins_pred.astype(np.int32)
-                    new_preds = np.left_shift(ins_preds, 16)
-
-                    sem_preds = sem_pred.astype(np.int32)
-                    inv_sem_labels = inv_learning_map[sem_preds]
-                    new_preds = np.bitwise_or(new_preds,inv_sem_labels)
-
-
-                    result_folder = 'pred_result'
-                    save_path = os.path.join(test_path, result_folder)
-                    if not os.path.exists(os.path.join(save_path, 'sequences', '{0:02d}'.format(int(sequence)), 'predictions')):
-                        os.makedirs(os.path.join(save_path, 'sequences', '{0:02d}'.format(int(sequence)), 'predictions'))
-
-                    new_preds.tofile('{}/{}/{:02d}/predictions/{:06d}.label'.format(save_path, 'sequences', int(sequence), f_ind))
-
-                    
-                    # return sem_pred, ins_pred
-
-                    # if pls_cfg.SAVE_TRAIN_FEATURES:
-                    #     save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, proj_mask, ins_preds, frame_preds, save_preds = False)
-                    # elif pls_cfg.SAVE_VAL_PRED:
-                    #     save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, proj_mask, ins_preds, frame_preds, save_preds = True)
-                    if ins_feat == []: # need to modify
-                        np_tsne = np.array([sem_tsne, ins_ids, ins_feat], dtype=object)
-                    else:
-                        ins_feat_list = [ins_feat.cpu().detach().numpy()]
-                        np_tsne = np.array([sem_tsne, ins_ids[0], ins_feat_list], dtype=object)
-
-                    filename_tsne = '{:s}_{:07d}.npy'.format(seq_name, f_ind)
-                    tsne_path = '/_data/tsne/'
-                    filepath_tsne = join(tsne_path, seq_path[-12:], filename_tsne)
-                    if not os.path.exists(join(tsne_path, seq_path[-12:])):
-                        os.makedirs(join(tsne_path, seq_path[-12:]))
-
-                    np.save(filepath_tsne, np_tsne, allow_pickle=True)
-
-                    ##################################################################################
-                    # # Save some prediction in ply format for visual
-                    if test_loader.dataset.set == 'validation':
-
-                        # Insert false columns for ignored labels
-                        frame_probs_uint8_bis = frame_probs_uint8.copy()
-                        for l_ind, label_value in enumerate(test_loader.dataset.label_values):
-                            if label_value in test_loader.dataset.ignored_labels:
-                                frame_probs_uint8_bis = np.insert(frame_probs_uint8_bis, l_ind, 0, axis=1)
-
-                        # Predicted labels
-                        frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8_bis,
-                                                                                 axis=1)].astype(np.int32)
-
-                        np.save(filepath, frame_preds)
-                        # Save some of the frame pots
-                        if f_ind % 20 == 0:
-                            seq_path = join(test_loader.dataset.path, 'sequences', test_loader.dataset.sequences[s_ind])
-                            velo_file = join(seq_path, 'velodyne', test_loader.dataset.frames[s_ind][f_ind] + '.bin')
-                            frame_points = np.fromfile(velo_file, dtype=np.float32)
-                            frame_points = frame_points.reshape((-1, 4))
-                            predpath = join(test_path, pred_folder, filename[:-4] + '.ply')
-                            #pots = test_loader.dataset.f_potentials[s_ind][f_ind]
-                            pots = np.zeros((0,))
-                            if pots.shape[0] > 0:
-                                write_ply(predpath,
-                                          [frame_points[:, :3], frame_labels, frame_preds, pots],
-                                          ['x', 'y', 'z', 'gt', 'pre', 'pots'])
-                            else:
-                                write_ply(predpath,
-                                          [frame_points[:, :3], frame_labels, frame_preds],
-                                          ['x', 'y', 'z', 'gt', 'pre'])
-
-                            # Also Save lbl probabilities
-                            probpath = join(test_path, folder, filename[:-4] + '_probs.ply')
-                            lbl_names = [test_loader.dataset.label_to_names[l]
-                                         for l in test_loader.dataset.label_values
-                                         if l not in test_loader.dataset.ignored_labels]
-                            write_ply(probpath,
-                                      [frame_points[:, :3], frame_probs_uint8],
-                                      ['x', 'y', 'z'] + lbl_names)
-
-                        # keep frame preds in memory
-                        all_f_preds[s_ind][f_ind] = frame_preds
-                        all_f_labels[s_ind][f_ind] = frame_labels
-
-                    else:
-
-                        # Insert false columns for ignored labels
-                        for l_ind, label_value in enumerate(test_loader.dataset.label_values):
-                            if label_value in test_loader.dataset.ignored_labels:
-                                frame_probs_uint8 = np.insert(frame_probs_uint8, l_ind, 0, axis=1)
-
-                        # Predicted labels
-                        frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8,
-                                                                                 axis=1)].astype(np.int32)
-                        np.save(filepath, frame_preds)
-                        if f_inds[b_i, 1] % 100 == 0:
-                            # Load points
-                            seq_path = join(test_loader.dataset.path, 'sequences', test_loader.dataset.sequences[s_ind])
-                            velo_file = join(seq_path, 'velodyne', test_loader.dataset.frames[s_ind][f_ind] + '.bin')
-                            frame_points = np.fromfile(velo_file, dtype=np.float32)
-                            frame_points = frame_points.reshape((-1, 4))
-                            predpath = join(test_path, pred_folder, filename[:-4] + '.ply')
-                            #pots = test_loader.dataset.f_potentials[s_ind][f_ind]
-                            pots = np.zeros((0,))
-                            if pots.shape[0] > 0:
-                                write_ply(predpath,
-                                          [frame_points[:, :3], frame_preds, pots],
-                                          ['x', 'y', 'z', 'pre', 'pots'])
-                            else:
-                                write_ply(predpath,
-                                          [frame_points[:, :3], frame_preds],
-                                          ['x', 'y', 'z', 'pre'])
-
-                    ######################################################################################
                     # Stack all prediction for this epoch
                     i0 += length
-
 
                 # Average timing
                 t += [time.time()]
@@ -969,9 +743,9 @@ class ModelTester:
                     message = 'e{:03d}-i{:04d} => {:.1f}% (timings : {:4.2f} {:4.2f} {:4.2f}) / pots {:d} => {:.1f}%'
                     min_pot = int(torch.floor(torch.min(test_loader.dataset.potentials)))
                     pot_num = torch.sum(test_loader.dataset.potentials > min_pot + 0.5).type(torch.int32).item()
-                    current_num = pot_num + (i + 1 - pls_cfg.validation_size) * pls_cfg.val_batch_num
+                    current_num = pot_num + (i + 1 - config.validation_size) * config.val_batch_num
                     print(message.format(test_epoch, i,
-                                         100 * i / pls_cfg.validation_size,
+                                         100 * i / config.validation_size,
                                          1000 * (mean_dt[0]),
                                          1000 * (mean_dt[1]),
                                          1000 * (mean_dt[2]),
@@ -988,73 +762,6 @@ class ModelTester:
                 # Update last_min
                 last_min += 1
 
-                if test_loader.dataset.set == 'validation' and last_min % 1 == 0:
-
-                    #####################################
-                    # Results on the whole validation set
-                    #####################################
-
-                    # Confusions for our subparts of validation set
-                    Confs = np.zeros((len(predictions), nc_tot, nc_tot), dtype=np.int32)
-                    for i, (preds, truth) in enumerate(zip(predictions, targets)):
-
-                        # Confusions
-                        Confs[i, :, :] = fast_confusion(truth, preds, test_loader.dataset.label_values).astype(np.int32)
-
-
-                    # Show vote results
-                    print('\nCompute confusion')
-
-                    val_preds = []
-                    val_labels = []
-                    t1 = time.time()
-                    for i, seq_frames in enumerate(test_loader.dataset.frames):
-                        val_preds += [np.hstack(all_f_preds[i])]
-                        val_labels += [np.hstack(all_f_labels[i])]
-                    val_preds = np.hstack(val_preds)
-                    val_labels = np.hstack(val_labels)
-                    t2 = time.time()
-                    C_tot = fast_confusion(val_labels, val_preds, test_loader.dataset.label_values)
-                    t3 = time.time()
-                    print(' Stacking time : {:.1f}s'.format(t2 - t1))
-                    print('Confusion time : {:.1f}s'.format(t3 - t2))
-
-                    s1 = '\n'
-                    for cc in C_tot:
-                        for c in cc:
-                            s1 += '{:7.0f} '.format(c)
-                        s1 += '\n'
-                    if debug:
-                        print(s1)
-
-                    # Remove ignored labels from confusions
-                    for l_ind, label_value in reversed(list(enumerate(test_loader.dataset.label_values))):
-                        if label_value in test_loader.dataset.ignored_labels:
-                            C_tot = np.delete(C_tot, l_ind, axis=0)
-                            C_tot = np.delete(C_tot, l_ind, axis=1)
-
-                    # Objects IoU
-                    val_IoUs = IoU_from_confusions(C_tot)
-
-                    # Compute IoUs
-                    mIoU = np.mean(val_IoUs)
-                    s2 = '{:5.2f} | '.format(100 * mIoU)
-                    for IoU in val_IoUs:
-                        s2 += '{:5.2f} '.format(100 * IoU)
-                    print(s2 + '\n')
-
-                    # Save a report
-                    report_file = join(report_path, 'report_{:04d}.txt'.format(int(np.floor(last_min))))
-                    strg = 'Report of the confusion and metrics\n'
-                    strg += '***********************************\n\n\n'
-                    strg += 'Confusion matrix:\n\n'
-                    strg += s1
-                    strg += '\nIoU values:\n\n'
-                    strg += s2
-                    strg += '\n\n'
-                    with open(report_file, 'w') as f:
-                        f.write(strg)
-
             test_epoch += 1
 
             # Break when reaching number of desired votes
@@ -1062,5 +769,26 @@ class ModelTester:
                 break
 
         return
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

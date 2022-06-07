@@ -81,12 +81,12 @@ def get_bbox_from_points(points):
     :return: 3D bbox [x1,y1,z1,x2,y2,z2]
     """
 
-    x1 = torch.min(points[:, 0])
-    x2 = torch.max(points[:, 0])
-    y1 = torch.min(points[:, 1])
-    y2 = torch.max(points[:, 1])
-    z1 = torch.min(points[:, 2])
-    z2 = torch.max(points[:, 2])
+    x1 = torch.min(points[:, 0]).cpu()
+    x2 = torch.max(points[:, 0]).cpu()
+    y1 = torch.min(points[:, 1]).cpu()
+    y2 = torch.max(points[:, 1]).cpu()
+    z1 = torch.min(points[:, 2]).cpu()
+    z2 = torch.max(points[:, 2]).cpu()
 
     return [x1,y1,z1,x2,y2,z2], np.array([x1 + (x2-x1)/2, y1+ (y2-y1)/2,z1+ (z2-z1)/2, 0, x2-x1,y2-y1,z2-z1]) # x, y, z, theta, l, w, h
 

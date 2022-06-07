@@ -7,4 +7,4 @@ results/
 test/
 test.bak/
 experiments/
-
+*.jpg

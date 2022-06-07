@@ -35,7 +35,7 @@ from datasets.SemanticKitti import *
 from torch.utils.data import DataLoader
 
 from utils.config import Config
-from utils.tester import ModelTester
+from utils.pls_tester import ModelTester
 from models.architectures import KPCNN, KPFCNN
 
 np.random.seed(0)

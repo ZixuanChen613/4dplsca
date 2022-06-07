@@ -22,8 +22,8 @@
 #       \**********************************/
 #
 
-# import pdb
-# pdb.set_trace()
+import pdb
+pdb.set_trace()
 
 # Common libs
 import time
@@ -76,11 +76,11 @@ class SemanticKittiDataset(PointCloudDataset):
 
         # Get a list of sequences
         if self.set in ['training', 'save_pred_training']:
-            self.sequences = ['{:02d}'.format(i) for i in range(7,8) if i != 8]   ### modify
+            self.sequences = ['{:02d}'.format(i) for i in range(6,7) if i != 8]   ### modify
         elif self.set in ['validation', 'save_pred_validation']:
             self.sequences = ['{:02d}'.format(i) for i in range(11) if i == 8]
         elif self.set == 'test':
-            self.sequences = ['{:02d}'.format(i) for i in range(11, 22)]
+            self.sequences = ['{:02d}'.format(i) for i in range(11, 14)]  ## range(11, 22)]
             
         else:
             raise ValueError('Unknown set for SemanticKitti data: ', self.set)
@@ -1497,11 +1497,11 @@ class SemanticKittiCustomBatch:
         ind += 1
         self.reproj_inds = input_list[ind]                              # r_inds_list
         ind += 1
-        self.reproj_masks = input_list[ind]
+        self.reproj_masks = input_list[ind]                             # r_mask_list
         ind += 1
         self.f_inc_reproj_inds = input_list[ind]
         ind += 1
-        self.f_inc_reproj_masks = input_list[ind]
+        self.f_inc_reproj_masks = input_list[ind]                       # f_inc_r_mask_list
         ind += 1
         self.val_labels = input_list[ind]                               # sem label
 

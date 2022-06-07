@@ -35,7 +35,7 @@ from datasets.SemanticKitti import *
 from torch.utils.data import DataLoader
 
 from utils.config import Config
-from utils.tester import ModelTester
+from utils.pls_tester import ModelTester
 from models.architectures import KPCNN, KPFCNN
 
 np.random.seed(0)
@@ -99,7 +99,7 @@ if __name__ == '__main__':
     #       > 'last_XXX': Automatically retrieve the last trained model on dataset XXX
     #       > '(old_)results/Log_YYYY-MM-DD_HH-MM-SS': Directly provide the path of a trained model
 
-    chosen_log = '/data2/zixuan.chen/data/result/Log_2020-10-06_16-51-05'  # => ModelNet40
+    chosen_log = '/data2/zixuan.chen/data/results/Log_2020-10-06_16-51-05'  # => ModelNet40
 
     # Choose the index of the checkpoint to load OR None if you want to load the current checkpoint
     chkp_idx = None

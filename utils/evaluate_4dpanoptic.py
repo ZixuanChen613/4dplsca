@@ -2,8 +2,8 @@
 # This file is covered by the LICENSE file in the root of this project.
 #https://github.com/PRBonn/semantic-kitti-ap
 
-import pdb
-pdb.set_trace()
+# import pdb
+# pdb.set_trace()
 import argparse
 import os
 import yaml
@@ -41,7 +41,7 @@ if __name__ == '__main__':
       type=str,
       required=False,
       choices=["train", "valid", "test"],
-      default="valid",
+      default="valid",  # vlaid
       help='Split to evaluate on. One of ' + str(splits) + '. Defaults to %(default)s',
   )
   parser.add_argument(

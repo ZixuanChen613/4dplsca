@@ -33,7 +33,7 @@ def save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, p
         sem = batch.val_labels[0].astype(np.uint8)              # (123389, 1)   0-19
         ins = batch.ins_labels.cpu().numpy().astype(np.int32)  # (123389, 1)  instance labels
         valid = np.where((proj_mask==True) & (ins!=0))[0]  # (119195,)   valid instance flag ; (119195, 1) True
-        seq_path = '/data2/zixuan.chen/data/instance_features/sequences/'+seq+'/'
+        seq_path = '/_data/zixuan.chen/data/instance_features/sequences/'+seq+'/'
         max_pt = 10
         sem = pred.majority_voting(sem, ins)  ####???
 
