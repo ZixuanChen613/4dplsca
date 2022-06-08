@@ -244,7 +244,7 @@ class ModelTester:
         self.epoch = pls_checkpoint['epoch']
         self.pls_net.eval()
         self.ca_net.eval()
-        self.last_ins_id = 0
+        self.last_ins_id = 0  ## ?????????????
         print("Model and training state restored.")
 
 
@@ -317,7 +317,7 @@ class ModelTester:
         last_min = -0.5
         softmax = torch.nn.Softmax(1)
 
-        ###############
+        ############### get inv_learning_map #############
         data_cfg = '/data1/zixuan.chen/data/kitti/semantic-kitti.yaml'
         with open(data_cfg, 'r') as stream:
             doc = yaml.safe_load(stream)
@@ -349,7 +349,7 @@ class ModelTester:
 
 
         if pls_cfg.saving:
-            test_path = join('/_data/zixuan/data/', 'test_plsca', pls_cfg.saving_path.split('/')[-1]+ '_'+pls_cfg.assoc_saving+str(pls_cfg.n_test_frames))
+            test_path = join('/_data/zixuan/data_v2/', 'test_plsca', pls_cfg.saving_path.split('/')[-1]+ '_'+pls_cfg.assoc_saving+str(pls_cfg.n_test_frames))
             if not exists(test_path):
                 makedirs(test_path)
             report_path = join(test_path, 'reports')
@@ -811,7 +811,7 @@ class ModelTester:
                     ins_preds = ins_preds.astype(np.int32)
                     sem_pred = pred.majority_voting(frame_preds, ins_preds)
 
-                    #############################
+                    ############################# CA-net predictions
                     raw_features = pt_features.astype(np.float32) 
                     pt_coors = frame_points[:, :3]
 

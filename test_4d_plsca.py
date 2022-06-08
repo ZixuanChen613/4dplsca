@@ -37,7 +37,6 @@ from utils.config import Config
 from utils.plsca_tester import ModelTester
 from models.architectures import KPCNN, KPFCNN
 
-import cont_assoc.models.contrastive_models as ca_models
 import cont_assoc.models.contrastive_models as c_models
 
 
@@ -108,7 +107,7 @@ if __name__ == '__main__':
     chkp_idx = None
 
     # Choose to test on validation or test split
-    on_val = False
+    on_val = True
 
     # Deal with 'last_XXXXXX' choices
     chosen_log = model_choice(chosen_log)

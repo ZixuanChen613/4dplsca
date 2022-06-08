@@ -750,7 +750,7 @@ class ModelTester:
 
 
         if config.saving:
-            test_path = join('test', config.saving_path.split('/')[-1]+ '_'+config.assoc_saving+str(config.n_test_frames))
+            test_path = join('_data/test', config.saving_path.split('/')[-1]+ '_'+config.assoc_saving+str(config.n_test_frames))
             if not exists(test_path):
                 makedirs(test_path)
             report_path = join(test_path, 'reports')

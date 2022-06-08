@@ -54,10 +54,10 @@ def group_instances(gt_coors, pt_raw_feat, ins_pred):
         ids, n_ids = np.unique(pt_ins_id[valid],return_counts=True)
         n_ins = 0
         for ii in range(len(ids)):#iterate over all instances
-            if n_ids[ii] > 30:#filter too small instances
+            if n_ids[ii] >= 25:#filter too small instances
                 pt_idx = np.where(pt_ins_id==ids[ii])[0]
                 coors = torch.tensor(pt_coors[pt_idx],device='cuda')
-                feats = torch.tensor(feat[pt_idx],device='cuda')
+                feats = torch.tensor(feat[pt_idx], device='cuda')
                 _coors.extend([coors])
                 _feats.extend([feats])
                 _ids.extend([ids[ii]])
