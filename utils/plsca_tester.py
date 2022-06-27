@@ -349,7 +349,8 @@ class ModelTester:
 
 
         if pls_cfg.saving:
-            test_path = join('/_data/zixuan/data_v2/', 'test_plsca', pls_cfg.saving_path.split('/')[-1]+ '_'+pls_cfg.assoc_saving+str(pls_cfg.n_test_frames))
+            test_path = join('/_data/zixuan/data_0627/4scans', 'test_plsca', pls_cfg.saving_path.split('/')[-1]+ '_'+pls_cfg.assoc_saving+str(pls_cfg.n_test_frames))
+            print(test_path)
             if not exists(test_path):
                 makedirs(test_path)
             report_path = join(test_path, 'reports')
@@ -406,6 +407,9 @@ class ModelTester:
                         f_ind = f_inds[b_i, 1]
                         if f_ind % pls_cfg.n_test_frames != pls_cfg.n_test_frames-1:
                              flag = False
+                else:
+                    f_inds = batch.frame_inds.cpu().numpy()
+                    f_ind = f_inds[0, 1]
 
                 if processed == test_loader.dataset.all_inds.shape[0]:
                     return
@@ -514,12 +518,8 @@ class ModelTester:
                     filepath = join(test_path, folder, filename)
                     filename_i = '{:s}_{:07d}_i.npy'.format(seq_name, f_ind)
                     filename_c = '{:s}_{:07d}_c.npy'.format(seq_name, f_ind)
-                    # filename_e = '{:s}_{:07d}_e.npy'.format(seq_name, f_ind)
-                    # filename_m = '{:s}_{:07d}_m.npy'.format(seq_name, f_ind)
                     filepath_i = join(test_path, folder, filename_i)
                     filepath_c = join(test_path, folder, filename_c)
-                    # filepath_e = join(test_path, folder, filename_e)
-                    # filepath_m = join(test_path, folder, filename_m)
 
                     frame_probs_uint8 = np.zeros((proj_mask.shape[0], nc_model), dtype=np.uint8)  # 123433
                     frame_c_probs = np.zeros((proj_mask.shape[0], 1))
@@ -530,22 +530,18 @@ class ModelTester:
                     frame_probs = test_smooth * frame_probs + (1 - test_smooth) * proj_probs
                     frame_probs_uint8[proj_mask, :] = (frame_probs * 255).astype(np.uint8)
 
-
                     ins_preds[proj_mask] = proj_ins_probs
                     frame_c_probs[proj_mask] = proj_c_probs
                     pt_features[proj_mask] = proj_pt_features
 
-                    ############# 
-
+                    # Predicted semantic labels
                     frame_probs_uint8_f = frame_probs_uint8.copy()
                     for l_ind, label_value in enumerate(test_loader.dataset.label_values):
                             if label_value in test_loader.dataset.ignored_labels:
                                 frame_probs_uint8_f = np.insert(frame_probs_uint8_f, l_ind, 0, axis=1)
 
-                    # Predicted labels
                     frame_preds = test_loader.dataset.label_values[np.argmax(frame_probs_uint8_f,
                                                                             axis=1)].astype(np.int32)
-                    ##############
 
 
                     seq_path = join(test_loader.dataset.path, 'sequences', test_loader.dataset.sequences[s_ind])
@@ -553,12 +549,8 @@ class ModelTester:
                     frame_points = np.fromfile(velo_file, dtype=np.float32)                         # 123433
                     frame_points = frame_points.reshape((-1, 4))                                    # 123433
 
-                    #np.save(filepath, frame_probs_uint8)
-                    #print ('Saving {}'.format(filepath_i))
                     np.save(filepath_i, ins_preds)                  # 123433
                     np.save(filepath_c, frame_c_probs)              # 123433
-                    # np.save(filepath_e, pt_features)                # 123433
-                    # np.save(filepath_m, proj_mask)
 
                     # ins_features = {}
                     # for ins_id in np.unique(ins_preds):
@@ -589,7 +581,7 @@ class ModelTester:
                     features = {}
                     for ins_id in ins_ids:
                         features[ins_id] = torch.from_numpy(np.zeros((1,1)))  
-                                               #  ????????????????????????????
+                        
                     # if os.path.exists(fet_path):
                     #     features = np.load(fet_path, allow_pickle=True).tolist()
                     # else:
@@ -773,7 +765,7 @@ class ModelTester:
                     # add new instances to history
                     for ins_id, instance in new_instances.items():       # [1, 2, 4, 5, 6 ,7, 11], [17, 18, 23, 24, 28]
                         ids = np.where(label_inst == ins_id)
-                        if ids[0].shape[0] < 50:                   # drop ins 11
+                        if ids[0].shape[0] < 25:                   # if ids[0].shape[0] < 50: 
                             continue
                         prev_instances[ins_id] = instance          # n_ins > 50 add into ---> prev_ins
 
@@ -789,16 +781,17 @@ class ModelTester:
 
                     times.append(time.time()) # updating ids
 
-                    ins_preds = label_inst.cpu().numpy()         # (123389,)    # [0, 43, 44, 46, 47, 48, 49, 50] remove the ins with number less than 25
+                    ins_preds = np.load(ins_path) 
+                    # ins_preds = label_inst.cpu().numpy()         # (123389,)    # [0, 43, 44, 46, 47, 48, 49, 50] remove the ins with number less than 25
 
-                    #clean instances which have too few points
-                    for ins_id in np.unique(ins_preds):              # [0, 1, 2, 4, 5, 6, 7, 11], [0, 1, 2, 4, 6, 17, 18, 23, 24, 28]
-                        if ins_id == 0:
-                            continue
-                        valid_ind = np.argwhere(ins_preds == ins_id)[:, 0]     # ins_id = 1 ----> n_ins = 306
-                        # ins_preds[valid_ind] = ins_id+20                       # ??????????   43 -----> 63   ??????????
-                        if valid_ind.shape[0] < 25:
-                            ins_preds[valid_ind] = 0              
+                    # #clean instances which have too few points
+                    # for ins_id in np.unique(ins_preds):              # [0, 1, 2, 4, 5, 6, 7, 11], [0, 1, 2, 4, 6, 17, 18, 23, 24, 28]
+                    #     if ins_id == 0:
+                    #         continue
+                    #     valid_ind = np.argwhere(ins_preds == ins_id)[:, 0]     # ins_id = 1 ----> n_ins = 306
+                    #     # ins_preds[valid_ind] = ins_id+20                       # ??????????   43 -----> 63   ??????????
+                    #     if valid_ind.shape[0] < 25:
+                    #         ins_preds[valid_ind] = 0              
                                                                             # [0, 21, 22, 24, 25, 26, 27, 31], [0, 21, 22, 26, 37, 38, 43, 44, 48]
                     ###############################################################################
                     frame_points = np.fromfile(velo_file, dtype=np.float32)                         # 123433
@@ -823,6 +816,69 @@ class ModelTester:
                         ins_pred = ins_pred[0]
 
                     # save prediction ins and sem_label results for test
+                    ########### limit_0
+                    
+                    ins_pred_limit_0 = ins_pred
+                    #clean instances which have too few points
+                    for ins_id in np.unique(ins_pred_limit_0):              # [0, 1, 2, 4, 5, 6, 7, 11], [0, 1, 2, 4, 6, 17, 18, 23, 24, 28]
+                        if ins_id == 0:
+                            continue
+                        valid_ind = np.argwhere(ins_pred_limit_0 == ins_id)[:, 0]     # ins_id = 1 ----> n_ins = 306
+                        ins_pred_limit_0[valid_ind] = ins_id+20                       # ??????????   43 -----> 63   ??????????
+                        # if valid_ind.shape[0] < 25:
+                        #     ins_pred_limit_0[valid_ind] = 0              
+                                                                            # [0, 21, 22, 24, 25, 26, 27, 31], [0, 21, 22, 26, 37, 38, 43, 44, 48]
+                    for sem_id in np.unique(sem_pred):                  # [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] without 8
+                        if sem_id < 1 or sem_id > 8:                           # sem_id [0, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+                            valid_ind = np.argwhere((sem_pred == sem_id) & (ins_pred_limit_0 == 0))[:, 0]    # (4194,) semantic class = 0 and ins_id = 0
+                            ins_pred_limit_0[valid_ind] = sem_id                      # label instance which doesn't belong to things    
+
+                    #write instances to label file which is binary
+                    ins_preds = ins_pred_limit_0.astype(np.int32)
+                    new_preds = np.left_shift(ins_preds, 16)
+
+                    sem_preds = sem_pred.astype(np.int32)
+                    inv_sem_labels = inv_learning_map[sem_preds]
+                    new_preds = np.bitwise_or(new_preds,inv_sem_labels)
+
+                    result_folder = 'pred_result_limit_0'
+                    save_path = os.path.join(test_path, result_folder)
+                    if not os.path.exists(os.path.join(save_path, 'sequences', '{0:02d}'.format(int(sequence)), 'predictions')):
+                        os.makedirs(os.path.join(save_path, 'sequences', '{0:02d}'.format(int(sequence)), 'predictions'))
+
+                    new_preds.tofile('{}/{}/{:02d}/predictions/{:06d}.label'.format(save_path, 'sequences', int(sequence), f_ind))
+
+                    ############ limit_10
+                    
+                    ins_pred_limit_10 = ins_pred
+                    #clean instances which have too few points
+                    for ins_id in np.unique(ins_pred_limit_10):              # [0, 1, 2, 4, 5, 6, 7, 11], [0, 1, 2, 4, 6, 17, 18, 23, 24, 28]
+                        if ins_id == 0:
+                            continue
+                        valid_ind = np.argwhere(ins_pred_limit_10 == ins_id)[:, 0]     # ins_id = 1 ----> n_ins = 306
+                        ins_pred_limit_10[valid_ind] = ins_id+20                       # ??????????   43 -----> 63   ??????????
+                        if valid_ind.shape[0] < 10:
+                            ins_pred_limit_10[valid_ind] = 0              
+                                                                            # [0, 21, 22, 24, 25, 26, 27, 31], [0, 21, 22, 26, 37, 38, 43, 44, 48]
+                    for sem_id in np.unique(sem_pred):                  # [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] without 8
+                        if sem_id < 1 or sem_id > 8:                           # sem_id [0, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+                            valid_ind = np.argwhere((sem_pred == sem_id) & (ins_pred_limit_10 == 0))[:, 0]    # (4194,) semantic class = 0 and ins_id = 0
+                            ins_pred_limit_10[valid_ind] = sem_id                      # label instance which doesn't belong to things    
+
+                    #write instances to label file which is binary
+                    ins_preds = ins_pred_limit_10.astype(np.int32)
+                    new_preds = np.left_shift(ins_preds, 16)
+
+                    sem_preds = sem_pred.astype(np.int32)
+                    inv_sem_labels = inv_learning_map[sem_preds]
+                    new_preds = np.bitwise_or(new_preds,inv_sem_labels)
+
+                    result_folder = 'pred_result_limit_10'
+                    save_path = os.path.join(test_path, result_folder)
+                    if not os.path.exists(os.path.join(save_path, 'sequences', '{0:02d}'.format(int(sequence)), 'predictions')):
+                        os.makedirs(os.path.join(save_path, 'sequences', '{0:02d}'.format(int(sequence)), 'predictions'))
+
+                    new_preds.tofile('{}/{}/{:02d}/predictions/{:06d}.label'.format(save_path, 'sequences', int(sequence), f_ind))
 
                     sem_tsne =[]   
                     ############
@@ -851,7 +907,7 @@ class ModelTester:
                     new_preds = np.bitwise_or(new_preds,inv_sem_labels)
 
 
-                    result_folder = 'pred_result'
+                    result_folder = 'pred_result_limit_25'
                     save_path = os.path.join(test_path, result_folder)
                     if not os.path.exists(os.path.join(save_path, 'sequences', '{0:02d}'.format(int(sequence)), 'predictions')):
                         os.makedirs(os.path.join(save_path, 'sequences', '{0:02d}'.format(int(sequence)), 'predictions'))

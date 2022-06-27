@@ -52,6 +52,45 @@ from utils.save_features import save_features
 #       \******************/
 #
 
+def associate_overlapped_ins(overlaps, overlap_history, label_inst, new_instances, prev_instances):
+    for (new_id, prev_id) in overlaps.items():
+        ins_points = torch.where((label_inst == new_id))
+        if not new_id in new_instances or prev_id not in prev_instances:
+            continue
+        overlap_history[new_id] = prev_id#add tracking id
+        label_inst[ins_points[0]] = prev_id
+        prev_instances[prev_id]['bbox_proj'] = new_instances[new_id]['bbox_proj']
+        # prev_instances[prev_id]['mean'] = new_instances[new_id]['mean']
+        prev_instances[prev_id]['center'] = new_instances[new_id]['center']
+        prev_instances[prev_id]['life'] += 1
+        prev_instances[prev_id]['tracker'].update(new_instances[new_id]['kalman_bbox'], prev_id)
+        prev_instances[prev_id]['kalman_bbox'] = torch.from_numpy(prev_instances[prev_id]['tracker'].get_state()).float()
+        prev_instances[prev_id]['bbox'] = kalman_box_to_eight_point(prev_instances[prev_id]['kalman_bbox'])
+
+        del new_instances[new_id]
+
+    return overlap_history, label_inst, new_instances, prev_instances
+
+def associate_not_overlapped_ins(associations, overlaps, overlap_history, label_inst, new_instances, prev_instances):
+    for prev_id, new_id in associations:
+        if new_id in overlaps:
+            continue
+        
+        ins_points = torch.where((label_inst == new_id))
+        label_inst[ins_points[0]] = prev_id
+        overlap_history[new_id] = prev_id
+        prev_instances[prev_id]['bbox_proj'] = new_instances[new_id]['bbox_proj']
+        # prev_instances[prev_id]['mean'] = new_instances[new_id]['mean']
+        prev_instances[prev_id]['center'] = new_instances[new_id]['center']
+        prev_instances[prev_id]['life'] += 1
+        prev_instances[prev_id]['tracker'].update(new_instances[new_id]['kalman_bbox'], prev_id)
+        prev_instances[prev_id]['kalman_bbox'] = torch.from_numpy(prev_instances[prev_id]['tracker'].get_state()).float()
+        prev_instances[prev_id]['bbox'] = kalman_box_to_eight_point(prev_instances[prev_id]['kalman_bbox'])
+
+        del new_instances[new_id]
+        
+    return overlap_history, label_inst, new_instances, prev_instances
+
 
 def associate_instances(previous_instances, current_instances, overlaps,  pose, association_weights):
     pose = pose.cpu().float()
@@ -230,7 +269,7 @@ class ModelTester:
 
 
         if config.saving:
-            test_path = join('/data2/zixuan.chen/data/', 'test', config.saving_path.split('/')[-1]+ '_'+config.assoc_saving+str(config.n_test_frames))
+            test_path = join('/_data/zixuan/data_0626/single_frame/', 'test', config.saving_path.split('/')[-1]+ '_'+config.assoc_saving+str(config.n_test_frames))
             if not exists(test_path):
                 makedirs(test_path)
 
@@ -287,8 +326,13 @@ class ModelTester:
                     for b_i, length in enumerate(lengths):
                         f_inds = batch.frame_inds.cpu().numpy()
                         f_ind = f_inds[b_i, 1]
+                        
                         if f_ind % config.n_test_frames != config.n_test_frames-1:
                              flag = False
+                else:
+                    f_inds = batch.frame_inds.cpu().numpy()
+                    f_ind = f_inds[0, 1]
+
 
                 if processed == test_loader.dataset.all_inds.shape[0]:
                     return
@@ -647,40 +691,11 @@ class ModelTester:
                     # if there was instances from previous frames
                     if len(prev_instances.keys()) > 0:
                         #firstly associate overlapping instances
-                        for (new_id, prev_id) in overlaps.items():
-                            ins_points = torch.where((label_inst == new_id))
-                            if not new_id in new_instances or prev_id not in prev_instances:
-                                continue
-                            overlap_history[new_id] = prev_id#add tracking id
-                            label_inst[ins_points[0]] = prev_id
-                            prev_instances[prev_id]['bbox_proj'] = new_instances[new_id]['bbox_proj']
-                            # prev_instances[prev_id]['mean'] = new_instances[new_id]['mean']
-                            prev_instances[prev_id]['center'] = new_instances[new_id]['center']
-
-                            prev_instances[prev_id]['life'] += 1
-                            prev_instances[prev_id]['tracker'].update(new_instances[new_id]['kalman_bbox'], prev_id)
-                            prev_instances[prev_id]['kalman_bbox'] = torch.from_numpy(prev_instances[prev_id]['tracker'].get_state()).float()
-                            prev_instances[prev_id]['bbox'] = kalman_box_to_eight_point(prev_instances[prev_id]['kalman_bbox'])
-
-                            del new_instances[new_id]
-
-                        for prev_id, new_id in associations:
-                            if new_id in overlaps:
-                                continue
-                            # associate  instances which are not overlapped
-                            ins_points = torch.where((label_inst == new_id))
-                            label_inst[ins_points[0]] = prev_id
-                            overlap_history[new_id] = prev_id
-                            prev_instances[prev_id]['bbox_proj'] = new_instances[new_id]['bbox_proj']
-                            # prev_instances[prev_id]['mean'] = new_instances[new_id]['mean']
-                            prev_instances[prev_id]['center'] = new_instances[new_id]['center']
-
-                            prev_instances[prev_id]['life'] += 1
-                            prev_instances[prev_id]['tracker'].update(new_instances[new_id]['kalman_bbox'], prev_id)
-                            prev_instances[prev_id]['kalman_bbox'] = torch.from_numpy(prev_instances[prev_id]['tracker'].get_state()).float()
-                            prev_instances[prev_id]['bbox'] = kalman_box_to_eight_point(prev_instances[prev_id]['kalman_bbox'])
-
-                            del new_instances[new_id]
+                        overlap_history, label_inst, new_instances, prev_instances = associate_overlapped_ins(overlaps, overlap_history, 
+                                                                                                label_inst, new_instances, prev_instances)
+                        # associate instances which are not overlapped
+                        overlap_history, label_inst, new_instances, prev_instances = associate_not_overlapped_ins(associations, overlaps, 
+                                                                                            overlap_history, label_inst, new_instances, prev_instances)
 
                     for ins_id, instance in new_instances.items():  # add new instances to history     # [1, 2, 4, 5, 6 ,7, 11], [17, 18, 23, 24, 28]
                         ids = np.where(label_inst == ins_id)
@@ -715,8 +730,6 @@ class ModelTester:
                     #     if sem_id < 1 or sem_id > 8:                           # sem_id [0, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
                     #         valid_ind = np.argwhere((label_sem_class == sem_id) & (ins_preds == 0))[:, 0]    # (4194,) semantic class = 0 and ins_id = 0
                     #         ins_preds[valid_ind] = sem_id                      # label instance which doesn't belong to things  
-
-
 
                     #########################################################################
                     frame_points = np.fromfile(velo_file, dtype=np.float32)                         # 123433

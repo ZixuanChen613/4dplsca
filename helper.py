@@ -14,11 +14,11 @@ for k, v in inv_learning_map_doc.items():
 
 
 seq = 8
-folder = '/data2/zixuan.chen/data/validation_predictions/sequences/'+'08'+'/'+'scans'
+folder = '/_data/zixuan/data_0620/single_frame/validation_predictions/sequences/'+'08'+'/'+'scans'
 
 path_list = os.listdir(folder)
 path_list.sort(key=lambda x: int(x[3:-4]))
-save_path = '_data/evaluation'
+save_path = '/_data/zixuan/data_0620/single_frame/pls_evaluation'
 
 for i in range(0, len(path_list)):  # len(path_list)
     path = os.path.join(folder, path_list[i])

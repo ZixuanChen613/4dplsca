@@ -26,14 +26,14 @@ def save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, p
         sem = frame_preds
         ins = ins_preds
         valid = ins != 0
-        seq_path = '/data2/zixuan.chen/data/validation_predictions/sequences/'+seq+'/'
-        max_pt = 30
+        seq_path = '/_data/zixuan/data_0627/single_frame/validation_predictions/sequences/'+seq+'/'
+        max_pt = 25
 
     else:
         sem = batch.val_labels[0].astype(np.uint8)              # (123389, 1)   0-19
         ins = batch.ins_labels.cpu().numpy().astype(np.int32)  # (123389, 1)  instance labels
         valid = np.where((proj_mask==True) & (ins!=0))[0]  # (119195,)   valid instance flag ; (119195, 1) True
-        seq_path = '/_data/zixuan.chen/data/instance_features/sequences/'+seq+'/'
+        seq_path = '/_data/zixuan/data_0627/single_frame/instance_features/sequences/'+seq+'/'
         max_pt = 10
         sem = pred.majority_voting(sem, ins)  ####???
 
@@ -83,30 +83,6 @@ def save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, p
         frame_preds, ins_preds, velo_file, batch_labels, batch_ins], dtype=object)
     else:
         np_instances = np.array([seq, fname, _ids, _sem_labels, _n_pts, _coors, _feats], dtype=object)
-    # if fname == '0000037':
-    #     print(_sem_labels)
-    #     print(_ids)
+
     np.save(filename, np_instances, allow_pickle=True)
 
-
-#####       note line 62    #####
-
-# ids = [d[0] for d in data]
-# sem_labels = [d[1] for d in data]
-# pos_labels = [d[2] for d in data]
-# n_pts = [d[3] for d in data]
-# pt_coors = [d[4] for d in data]
-# pt_coors_T = [d[5] for d in data]
-# pt_features = [d[6] for d in data]
-# pose = [d[7] for d in data]
-
-# out_dict =  {                       #for each instance:
-#     'id': ids,                      #instance id
-#     'sem_label': sem_labels,        #semantic label
-#     'pos_label': pos_labels,        #positive label: to consider as positive example
-#     'n_pts' : n_pts,                #number of points depicting the instance
-#     'pt_coors' : pt_coors,          #xyz coordinates for each point [n_pts,3]
-#     'pt_coors_T' : pt_coors_T,      #global points coordinates [n_pts,3]
-#     'pt_features' : pt_features,    #features for every point [n_pts,128]
-#     'pose' : pose,                  #scan center global position
-#     }

@@ -14,8 +14,8 @@
 #      Hugues THOMAS - 06/03/2020
 #
 
-# import pdb
-# pdb.set_trace()
+import pdb
+pdb.set_trace()
 
 
 from models.blocks import *
