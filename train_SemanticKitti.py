@@ -157,12 +157,12 @@ class SemanticKittiConfig(Config):
     #####################
 
     # Maximal number of epochs
-    max_epoch = 200 # 1000
+    max_epoch = 600 # 1000
 
     # Learning rate management
     learning_rate = 1e-2
     momentum = 0.98
-    lr_decays = {i: 0.1 ** (1 / 200) for i in range(1, max_epoch)}
+    lr_decays = {i: 0.1 ** (1 / 600) for i in range(1, max_epoch)}
     grad_clip_norm = 100.0
 
     # Number of steps per epochs
@@ -232,14 +232,15 @@ if __name__ == '__main__':
     # Choose here if you want to start training from a previous snapshot (None for new training)
 
     #previous_training_path = 'Log_2020-06-05_17-18-35'
-    previous_training_path = 'Log_2020-10-06_16-51-05' #'Log_2020-08-30_01-29-20'
-    # previous_training_path =''
+    # previous_training_path = 'Log_2020-10-06_16-51-05' #'Log_2020-08-30_01-29-20'
+    # previous_training_path = 'Log_2022-07-12_16-44-16'
+    previous_training_path = 'Log_2022-07-16_11-00-13'
     # Choose index of checkpoint to start from. If None, uses the latest chkp
     chkp_idx = None
     if previous_training_path:
 
         # Find all snapshot in the chosen training folder
-        chkp_path = os.path.join('results', previous_training_path, 'checkpoints')
+        chkp_path = os.path.join('/_data/zixuan/data/results', previous_training_path, 'checkpoints')
         chkps = [f for f in os.listdir(chkp_path) if f[:4] == 'chkp']
 
         # Find which snapshot to restore
@@ -247,7 +248,7 @@ if __name__ == '__main__':
             chosen_chkp = 'current_chkp.tar'
         else:
             chosen_chkp = np.sort(chkps)[chkp_idx]
-        chosen_chkp = os.path.join('results', previous_training_path, 'checkpoints', chosen_chkp)
+        chosen_chkp = os.path.join('/_data/zixuan/data/results', previous_training_path, 'checkpoints', chosen_chkp)
 
     else:
         chosen_chkp = None
@@ -264,12 +265,12 @@ if __name__ == '__main__':
     # Initialize configuration class
     config = SemanticKittiConfig()
     if previous_training_path:
-        config.load(os.path.join('results', previous_training_path))
+        config.load(os.path.join('/_data/zixuan/data/results', previous_training_path))
         config.saving_path = None
-    config.learning_rate = 1e-3 # after pretraining change to 1e-3, before  1e-2
-    config.pre_train = False   # train the model using config.pre_train = True firstly at least for 200 epochs, then train the model using config.pre_train = False
+    config.learning_rate = 0.001 # after pretraining change to 1e-3, before  1e-2
+    config.pre_train = True   # train the model using config.pre_train = True firstly at least for 200 epochs, then train the model using config.pre_train = False
     config.free_dim = 4
-    config.n_frames = 2
+    config.n_frames = 1
     config.reinit_var = True
     config.n_test_frames = 1
     config.stride = 1

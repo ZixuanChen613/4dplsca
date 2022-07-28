@@ -26,14 +26,14 @@ def save_features(test_loader, batch, s_ind, f_ind, frame_points, pt_features, p
         sem = frame_preds
         ins = ins_preds
         valid = ins != 0
-        seq_path = '/_data/zixuan/data_0627/single_frame/validation_predictions/sequences/'+seq+'/'
+        seq_path = '/_data/zixuan/data_0727/single_frame/validation_predictions/sequences/'+seq+'/'
         max_pt = 25
 
     else:
         sem = batch.val_labels[0].astype(np.uint8)              # (123389, 1)   0-19
         ins = batch.ins_labels.cpu().numpy().astype(np.int32)  # (123389, 1)  instance labels
         valid = np.where((proj_mask==True) & (ins!=0))[0]  # (119195,)   valid instance flag ; (119195, 1) True
-        seq_path = '/_data/zixuan/data_0627/single_frame/instance_features/sequences/'+seq+'/'
+        seq_path = '/_data/zixuan/data_0727/single_frame/instance_features/sequences/'+seq+'/'
         max_pt = 10
         sem = pred.majority_voting(sem, ins)  ####???
 

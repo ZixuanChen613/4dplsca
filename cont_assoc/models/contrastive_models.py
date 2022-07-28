@@ -1,5 +1,5 @@
-# import pdb
-# pdb.set_trace()
+import pdb
+pdb.set_trace()
 import MinkowskiEngine as ME
 import numpy as np
 import torch
@@ -38,11 +38,11 @@ class ContrastiveTracking(LightningModule):
         loss = {}
         sem_labels = [torch.from_numpy(i).type(torch.LongTensor).cuda()
                       for i in x['sem_label']]
-        sem_labels = (torch.cat([i for i in sem_labels])).unsqueeze(1) #single tensor
-        pos_labels = [torch.from_numpy(i).type(torch.LongTensor).cuda()
+        sem_labels = (torch.cat([i for i in sem_labels])).unsqueeze(1) #single tensor # torch.Size([35, 1])
+        pos_labels = [torch.from_numpy(i).type(torch.LongTensor).cuda()             
                       for i in x['pos_label']]
-        pos_labels = (torch.cat([i for i in pos_labels])).unsqueeze(1) #single tensor
-        norm_features = F.normalize(features)
+        pos_labels = (torch.cat([i for i in pos_labels])).unsqueeze(1) #single tensor # torch.Size([35, 1])
+        norm_features = F.normalize(features)                                           # torch.Size([35, 2048])
         contrastive_loss = self.cont_loss(norm_features, pos_labels, sem_labels)
         loss['cont'] = contrastive_loss
         return loss

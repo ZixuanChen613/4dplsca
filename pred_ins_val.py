@@ -99,10 +99,17 @@ if __name__ == '__main__':
     #       > 'last_XXX': Automatically retrieve the last trained model on dataset XXX
     #       > '(old_)results/Log_YYYY-MM-DD_HH-MM-SS': Directly provide the path of a trained model
 
-    # chosen_log = '/_data/zixuan/data/Log_2022-06-20_23-56-14' # '/data2/zixuan.chen/data/results/Log_2020-10-06_16-51-05' #  # => ModelNet40
-    # chosen_log = '/_data/zixuan/data/Log_2022-06-17_23-30-36'
-    chosen_log = '/_data/zixuan/data/Log_2022-06-26_23-07-39'
-    # chosen_log =  '/data2/zixuan.chen/data/results/Log_2020-10-06_16-51-05' #  # => ModelNet40
+    # chosen_log = '/data2/zixuan.chen/data/results/Log_2020-10-06_16-51-05' #  # => ModelNet40
+    # chosen_log = '/_data/zixuan/data/Log_2022-06-20_23-56-14' # 11 13 15 [0.12, 0.33]
+    # chosen_log = '/_data/zixuan/data/Log_2022-06-17_23-30-36'  # 1 9 13 15 17
+    # chosen_log = '/_data/zixuan/data/Log_2022-06-26_23-07-39' # 1 9 11 15 17 [0.06, 0.4818]
+    # chosen_log = '/_data/zixuan/data/Log_2022-07-04_19-53-35' # 9 13 14 15   [0.08, 0.38]
+    # chosen_log = '/_data/zixuan/data/Log_2022-07-05_18-49-02' # 9, 11, 15  [0.04, 0.4496]
+    # chosen_log = '/_data/zixuan/data/Log_2022-07-07_09-01-21' # 1 9 11 13 15 [0.3130, 0.4920]  [0.0763, 0.4920]
+    # chosen_log = '/_data/zixuan/data/Log_2022-07-07_13-55-58' # 1 9 11 13 15
+    # chosen_log = '/_data/zixuan/data/Log_2022-07-09_08-55-07'
+    # chosen_log = '/_data/zixuan/data/Log_2022-07-10_09-53-28' # 1,  9, 11, 12, 13, 14, 15, 17 [0.009, 0.45]
+    chosen_log = '/_data/zixuan/data/results/Log_2022-07-26_00-26-13'
 
     # Choose the index of the checkpoint to load OR None if you want to load the current checkpoint
     chkp_idx = None

@@ -80,7 +80,7 @@ class SemanticKittiDataset(PointCloudDataset):
         elif self.set in ['validation', 'save_pred_validation']:
             self.sequences = ['{:02d}'.format(i) for i in range(11) if i == 8]
         elif self.set == 'test':
-            self.sequences = ['{:02d}'.format(i) for i in range(11, 14)]  ## range(11, 22)]
+            self.sequences = ['{:02d}'.format(i) for i in range(11, 22)]  ## range(11, 22)]
             
         else:
             raise ValueError('Unknown set for SemanticKitti data: ', self.set)
@@ -606,6 +606,7 @@ class SemanticKittiDataset(PointCloudDataset):
         #print (c_list.shape)
         centers = np.concatenate(c_list, axis=0) if self.set in ['training', 'test'] else np.concatenate(val_center_label_list, axis=0)
         # centers = np.concatenate(c_list, axis=0) if not self.set  == 'validation' else np.concatenate(val_center_label_list, axis=0)
+        
         times = np.concatenate(t_list, axis=0)
         stacked_points = np.concatenate(p_list, axis=0)
         features = np.concatenate(f_list, axis=0)

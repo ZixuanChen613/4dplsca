@@ -269,7 +269,7 @@ class ModelTester:
 
 
         if config.saving:
-            test_path = join('/_data/zixuan/data_0626/single_frame/', 'test', config.saving_path.split('/')[-1]+ '_'+config.assoc_saving+str(config.n_test_frames))
+            test_path = join('/_data/zixuan/data_0705/single_frame/', 'test', config.saving_path.split('/')[-1]+ '_'+config.assoc_saving+str(config.n_test_frames))
             if not exists(test_path):
                 makedirs(test_path)
 
